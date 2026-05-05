@@ -148,7 +148,7 @@ def load_config():
         n = 4,
         NDOF = sysSet["NDOF"],
         dt = sysSet["dt"],
-        total_T=int(1e4),
+        total_T=int(float(sysSet["total_T"])),
         min_samp_T=100,
         t_skip=1
     )
