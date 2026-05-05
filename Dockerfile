@@ -10,6 +10,7 @@ RUN pip install uv
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 # Copy only dependency files
 COPY pyproject.toml uv.lock* ./
@@ -18,7 +19,7 @@ COPY pyproject.toml uv.lock* ./
 COPY src/kf_da/vp_floats ./src/kf_da/vp_floats
 
 # Install deps + vpfloat, but not the main kf-da project
-RUN uv sync --frozen --no-install-project || uv sync --no-install-project
+RUN uv sync --frozen --no-install-project
 
 # Now copy the frequently changing project code
 COPY . .
