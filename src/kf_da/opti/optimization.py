@@ -1,18 +1,11 @@
 import jax.numpy as jnp
 import jax
-import optax
 from jax import lax
-from scipy.sparse.linalg import cg, LinearOperator
-from scipy.sparse.linalg import minres
-from scipy.sparse.linalg import eigsh
-import random
+from scipy.sparse.linalg import LinearOperator, minres
 from kf_da.opti.parent_classes import LS_TR_Opt, Loss_and_Deriv_fns
 from kf_da.opti.LS_TR import ArmijoLineSearch
 from kf_da.opti.Quasi_Newton import L_SR1, HVP_Update, L_BK, LBFGS_Update, BFGS_Update
 import numpy as np
-from scipy.sparse.linalg import LinearOperator
-from scipy.sparse.linalg import cg as scipy_cg
-from scipy.sparse.linalg import LinearOperator, minres
 from kf_da.utils.utils import bilinear_sample_periodic
 
 
@@ -148,7 +141,7 @@ class Joint_Opt:
 
         self.vel_trj_gen_fn = vel_trj_gen_fn
         self.t_mask = t_mask
-        self.meas_indices = jnp.where(t_mask == True)[0]
+        self.meas_indices = jnp.where(t_mask)[0]
         self.part_arr_shape = part_arr_shape
         self.dt = dt
 
@@ -365,141 +358,6 @@ class Joint_Opt:
         return J_r + J_m
 
 
-    def opt_pp_bu(self, Z0, get_IC_state_fn):
-        """
-        Batched particle-position optimization using:
-        - manual gradient
-        - manual Hessian-vector product
-        - one global CG solve
-        - one global backtracking line search
-
-        Updates self.PP_opt in place and returns nothing.
-        """
-        n_total = self.n_parts                    # total x entries, same as total y entries
-        n_states, n_tracks = self.part_arr_shape  # e.g. (7, 45)
-
-        c1 = 1e-4
-        tau = 0.5
-        alpha_init = 1.0
-        max_bt_its = 10
-        newton_its = 10
-        damping = 1e-6
-
-        omega0_DA_hat = get_IC_state_fn(Z0)
-        u_traj, v_traj = self.vel_trj_gen_fn(omega0_DA_hat)
-
-        xp_opt = self.PP_opt[:n_total].reshape(self.part_arr_shape)
-        yp_opt = self.PP_opt[n_total:2 * n_total].reshape(self.part_arr_shape)
-        xp_meas = self.xp_meas_flat.reshape(self.part_arr_shape)
-        yp_meas = self.yp_meas_flat.reshape(self.part_arr_shape)
-
-        print("Starting batched particle-position optimization")
-        print(
-            f"n_total={n_total}, n_states={n_states}, "
-            f"n_tracks={n_tracks}, newton_its={newton_its}"
-        )
-
-        for k in range(newton_its):
-            J0 = self._all_track_loss(
-                xp_opt, yp_opt, xp_meas, yp_meas, u_traj, v_traj
-            )
-
-            s_x, s_y, dxt_dxi, dxt_dyi, dyt_dxi, dyt_dyi = self._all_track_model_data(
-                xp_opt, yp_opt, u_traj, v_traj
-            )
-
-            grad_x, grad_y, _, _ = self._all_track_gradient(
-                xp_opt,
-                yp_opt,
-                xp_meas,
-                yp_meas,
-                s_x,
-                s_y,
-                dxt_dxi,
-                dxt_dyi,
-                dyt_dxi,
-                dyt_dyi,
-            )
-
-            grad_all = jnp.concatenate([grad_x, grad_y], axis=0)   # (2*n_states, n_tracks)
-            grad_vec = np.asarray(grad_all.reshape(-1))
-            grad_norm = float(jnp.linalg.norm(grad_all))
-
-            print(f"iter={k:02d}, loss={float(J0):.3e}, grad_norm={grad_norm:.3e}")
-
-            n_dof = grad_vec.size  # should be 2 * n_states * n_tracks
-
-            hvp_fn = jax.jit(
-                lambda v_flat: self._all_track_hvp(
-                    v_flat.reshape(2 * n_states, n_tracks),
-                    dxt_dxi,
-                    dxt_dyi,
-                    dyt_dxi,
-                    dyt_dyi,
-                ).reshape(-1)
-            )
-
-            def matvec(v_np):
-                v_jax = jnp.asarray(v_np).reshape(-1)
-                Hv_jax = hvp_fn(v_jax) + damping * v_jax
-                return np.asarray(Hv_jax)
-
-            H_linop = LinearOperator(
-                shape=(n_dof, n_dof),
-                matvec=matvec,
-                dtype=np.float64,
-            )
-
-            rhs = -grad_vec
-            step_np, info = scipy_cg(
-                H_linop,
-                rhs,
-            )
-
-            step_all = jnp.asarray(step_np).reshape(2 * n_states, n_tracks)
-
-            gTp = float(jnp.dot(grad_all.reshape(-1), step_all.reshape(-1)))
-            if (not np.isfinite(gTp)) or (gTp >= 0.0):
-                print(f"iter={k:02d}: CG step not descent, using steepest descent")
-                step_all = -grad_all
-                gTp = float(jnp.dot(grad_all.reshape(-1), step_all.reshape(-1)))
-
-            alpha = alpha_init
-            accepted = False
-
-            for bt_it in range(max_bt_its):
-                xp_trial, yp_trial = self._apply_step_all_tracks(
-                    xp_opt, yp_opt, step_all, alpha
-                )
-
-                J_trial = self._all_track_loss(
-                    xp_trial, yp_trial, xp_meas, yp_meas, u_traj, v_traj
-                )
-
-                if J_trial <= J0 + c1 * alpha * gTp:
-                    accepted = True
-                    print(
-                        f"iter={k:02d}: cg_info={info}, bt_it={bt_it}, "
-                        f"alpha={alpha:.3e}, new_loss={float(J_trial):.6e}"
-                    )
-                    break
-
-                alpha *= tau
-
-            if not accepted:
-                print(f"iter={k:02d}: line search failed, skipping update")
-                break
-
-            xp_opt = xp_trial
-            yp_opt = yp_trial
-
-        self.PP_opt = jnp.concatenate([
-            xp_opt.reshape(-1),
-            yp_opt.reshape(-1),
-        ])
-
-        print("Finished batched particle-position optimization")
-
     def opt_pp(self, Z0, get_IC_state_fn):
         c1 = 1e-4
         tau = 0.5
@@ -710,13 +568,6 @@ class NCSR1(LS_TR_Opt, L_SR1, HVP_Update):
         self.HVP_Bk_update(gTHg, grad.reshape((-1, 1)))
 
     def second_order_logic(self, grad, hvp, Z0, iter):
-        if False:
-            for i in range(qTHq.shape[0]):
-                xi = Q[:, i]
-                t = jnp.dot(xi, self.Bk @ xi)
-                print(t, qTHq[i])
-            print("----")
-
         Bk_eigs, Bk_eig_vec = self.Bk.eig_decomp(which="LM", num_eig=len(self.Bk))
         pk = self.NCN_dir(Bk_eigs, Bk_eig_vec, grad)
         if jnp.any(jnp.isnan(pk)):
@@ -767,11 +618,12 @@ class NCSR1_and_LBFGS:
         Hg = loss_fn_and_derivs.HVP_fn(Z0, grad)
         gTHg = jnp.dot(grad, Hg)
         print(f"Initial gTHg: {gTHg/jnp.linalg.norm(grad)**2}")
+        opt_data = None
         if gTHg < 0:
             print("NCNSR1 Init")
             Z0, opt_data = self.NCSR1_opt.opt_loop(Z0, loss_fn_and_derivs, inv_transform, omega0_hat_trg, attractor_rad, init_loss=loss, init_grad=grad, init_Hg=Hg)
         Z0, opt_data_2 = self.BFGS_opt.opt_loop(Z0, loss_fn_and_derivs, inv_transform, omega0_hat_trg, attractor_rad)
-        opt_data += opt_data_2
+        opt_data = opt_data + opt_data_2 if opt_data is not None else opt_data_2
 
         return Z0, opt_data
     

@@ -38,7 +38,7 @@ def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, 
     final_snap_rel_error = rel_error(omega_trg_hat[-1], omega_DA_hat[-1], attractor_rad)
     
     init_snap_cos_sim = cos_sim(omega_trg[0], omega_DA[0])
-    int_snap_rel_error = rel_error(omega_trg_hat[0], omega_DA_hat[0], attractor_rad)
+    init_snap_rel_error = rel_error(omega_trg_hat[0], omega_DA_hat[0], attractor_rad)
 
     results_df["trj_cos_sim"] = [float(trj_cos_sim)]
     results_df["trj_rel_error"] = [float(trj_rel_error)]
@@ -48,7 +48,7 @@ def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, 
     results_df["final_snap_rel_error"] = [float(final_snap_rel_error)]
 
     results_df["init_snap_cos_sim"] = [float(init_snap_cos_sim)]
-    results_df["int_snap_rel_error"] = [float(int_snap_rel_error)]
+    results_df["init_snap_rel_error"] = [float(init_snap_rel_error)]
 
     # Time axis length should match the number of timesteps
     nsteps = omega_trg_hat.shape[0]
@@ -109,10 +109,6 @@ def _break_periodic_lines(x, y, Lx, Ly, jump_frac=0.5):
     xb[idx] = np.nan
     yb[idx] = np.nan
     return xb, yb
-
-import numpy as np
-import matplotlib.pyplot as plt
-import jax.numpy as jnp
 
 def plot_particle_tracks(
     xp_trg, yp_trg, xp_DA, yp_DA,

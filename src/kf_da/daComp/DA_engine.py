@@ -9,7 +9,6 @@ from kf_da.opti.parent_classes import LS_TR_Opt, Loss_and_Deriv_fns
 from kf_da.opti.optimization import Joint_Opt
 from kf_da.utils.create_results_dir import create_results_dir
 from kf_da.solver.ploting import plot_vorticity
-#from kf_da.velInit.CS_init import CS_init
 from kf_da.velInit.AI import AI
 from kf_da.solver.solver import KF_TP_Stepper, KF_Stepper, create_omega_part_gen_fn, Omega_Integrator, create_vel_trj_gen_fn
 
@@ -75,7 +74,6 @@ def get_tmask(T, NT, solver_dt, m_dt, loss_crit):
         t_mask = t_mask.at[idx_true].set(True)
 
         if isinstance(loss_crit, MSE_Vel):
-            print("skfjdjkfjd")
             t_mask = t_mask.at[idx_true[0]].set(False)
     else:
         m_T = m_dt * NT
@@ -203,9 +201,6 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                                 yp_traj + DA_opts.sigma_y * jax.random.normal(y_key, yp_traj.shape),
                                 stepper.NS.L
                             )
-                            #xp_traj_DA = xp_traj + sigma_x * jax.random.normal(x_key, xp_traj.shape)
-
-                            #yp_traj_DA = yp_traj + DA_opts.sigma_y * jax.random.normal(y_key, yp_traj.shape)
 
                             fig, _ = plot_particles(xp, yp, stepper.NS.L, xp_DA=xp_traj_DA[0,:], yp_DA=yp_traj_DA[0,:], ax=None, s=20)
                             fig.savefig(os.path.join(PI_root, "particle_IC.png"))
@@ -249,7 +244,6 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                                         else:
                                             pp_sigma = None
 
-                                        checkpoint = kf_opts.Re > 100
                                         checkpoint = True
                                         loss_fn_and_derivs = Loss_and_Deriv_fns(loss_crit, IC_param.inv_transform, stepper, kf_stepper, target_trj, pp_sigma, DA_part_pos_trj, kf_opts.dt, T, vfloat, checkpoint=checkpoint)
                                         if optimizer.psuedo_proj is not None:
@@ -260,10 +254,9 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                                             optimizer.set_pp_loss_fn(loss_fn_and_derivs.gen_loss_fn, loss_fn_and_derivs.PP_opt_default, pp_sigma, stepper.NS.L, vel_trj_gen_fn, t_mask, DA_part_pos_trj[0].shape, kf_opts.dt)
 
 
-                                        if isinstance(DA_opts.ic_init, AI):
-                                            DA_opts.ic_init.set_unused_mask()
-                                        else:
-                                            return
+                                        if not isinstance(DA_opts.ic_init, AI):
+                                            raise NotImplementedError(f"ic_init type {type(DA_opts.ic_init).__name__} is not supported")
+                                        DA_opts.ic_init.set_unused_mask()
                                         
                                         if not did_IC_guess_count:
                                             IC_guess_count = count_folders(param_dir)
@@ -344,9 +337,6 @@ def _run_DA_case(
 
     
     results_df["loss_record"] = [opt_data.loss_record]
-    #results_df["loss_evals_record"] = [opt_data.loss_evals_record]
-    #results_df["loss_grad_evals_record"] = [opt_data.loss_grad_evals_record]
-    #results_df["Hvp_evals_record"] = [opt_data.Hvp_evals_record]
 
     #saving npy files
     np.save(os.path.join(save_dir, "omega_DA_trj.npy"), np.array(DA_trj[0]))

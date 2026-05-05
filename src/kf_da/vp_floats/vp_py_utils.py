@@ -1,7 +1,5 @@
 import math
 
-import math
-
 def choose_exponent_format(min_mag, max_mag, max_E=8):
     assert min_mag > 0 and max_mag > min_mag
 
@@ -24,7 +22,6 @@ def choose_exponent_format(min_mag, max_mag, max_E=8):
     return E, bias
 
 
-import math
 from typing import Tuple
 
 def float_pos_range(exp_bits: int, bias: int, mant_bits: int, *, subnormals: bool = False) -> Tuple[float, float]:

@@ -35,18 +35,6 @@ class L_BK:
             result += jnp.outer(x, x) * self.Bk_scalars[i]
         return result
 
-    def eig_decomp_dec(self, which="LM", num_eig=None):
-        if num_eig is None or num_eig > len(self):
-            num_eig = len(self)
-
-        def matvec(v):
-            v = jnp.asarray(v)
-            return self @ v
-
-        A_op = LinearOperator((self.N, self.N), matvec=matvec)
-        Bk_eigs, Bk_eig_vec = eigsh(A_op, k=num_eig, which=which)
-        return jnp.array(Bk_eigs), jnp.array(Bk_eig_vec)
-    
     def eig_decomp(self, which="LM", num_eig=None, *, max_tries=5):
         """
         Robust eigsh wrapper:
@@ -143,8 +131,8 @@ class L_BK:
         removed_scalar = self.Bk_scalars[idx]
         
         zeros_cols = jnp.zeros((self.N, 1), dtype=self.Bk_vecs.dtype)
-        self.Bk_vecs = jnp.concat([jnp.delete(self.Bk_vecs, idx, axis=1), zeros_cols], axis=1)
-        self.Bk_scalars = jnp.concat([jnp.delete(self.Bk_scalars, idx), jnp.zeros(1, dtype=self.Bk_scalars.dtype)])
+        self.Bk_vecs = jnp.concatenate([jnp.delete(self.Bk_vecs, idx, axis=1), zeros_cols], axis=1)
+        self.Bk_scalars = jnp.concatenate([jnp.delete(self.Bk_scalars, idx), jnp.zeros(1, dtype=self.Bk_scalars.dtype)])
         self.cmem -= 1
 
         return removed_vec, removed_scalar
@@ -164,11 +152,11 @@ class L_BK:
         
         Bk_vecs_1 = self.Bk_vecs[:, :idx]
         Bk_vecs_2 = self.Bk_vecs[:, idx:]
-        self.Bk_vecs = jnp.concat([Bk_vecs_1, vec, Bk_vecs_2], axis=1)
+        self.Bk_vecs = jnp.concatenate([Bk_vecs_1, vec, Bk_vecs_2], axis=1)
 
         Bk_scalar_1 = self.Bk_scalars[:idx]
         Bk_scalar_2 = self.Bk_scalars[idx:]
-        self.Bk_scalars = jnp.concat([Bk_scalar_1, scalar, Bk_scalar_2])
+        self.Bk_scalars = jnp.concatenate([Bk_scalar_1, scalar, Bk_scalar_2])
 
     def __getitem__(self, i):
         return self.Bk_vecs[:, i], self.Bk_scalars[i]
@@ -177,6 +165,19 @@ class L_BK:
         return self.max_memory - self.cmem
 
 class L_SR1():
+    """
+    Limited-memory Symmetric Rank-1 (SR1) inverse Hessian approximation.
+
+    Unlike L-BFGS, SR1 can accumulate indefinite curvature information, making
+    it useful for non-convex problems where the Hessian has negative eigenvalues
+    (e.g., near saddle points in chaotic DA). The update is skipped when the
+    denominator r^T s is too small to avoid numerical blow-up.
+
+    Two update variants:
+      "conv"  — standard SR1: y = grad_next - grad
+      "mod"   — modified SR1: y is corrected by a cubic model term (theta),
+                which improves curvature estimates when the loss is non-quadratic.
+    """
     def __init__(self):
         self.Bk = L_BK()
     

@@ -173,6 +173,9 @@ class Forced_2D_NS:
         return omega_hat / (1 - mu * self.diff_op)
     
 class KF_Stepper:
+    # Low-storage 5-stage IMEX Runge-Kutta coefficients.
+    # Explicit (advection) part uses the Carpenter & Kennedy (1994) RK4(3)5[2R+]C
+    # low-storage scheme; implicit (diffusion) part is solved exactly at each stage.
     alpha = [0, 0.1496590219993, 0.3704009573644, 0.6222557631345, 0.9582821306748, 1]
     beta  = [0, -0.4178904745, -1.192151694643, -1.697784692471, -1.514183444257]
     gamma = [0.1496590219993, 0.3792103129999, 0.8229550293869, 0.6994504559488, 0.1530572479681]

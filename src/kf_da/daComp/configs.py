@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from kf_da.velInit.IC_init import IC_init #from SRC.vp_floats.vp_py_utils import choose_exponent_format, float_pos_range
+from kf_da.velInit.IC_init import IC_init
+from kf_da.vp_floats.vp_py_utils import choose_exponent_format, float_pos_range
 
 @dataclass
 class KF_Opts:
@@ -33,16 +34,6 @@ class DA_Opts:
     crit_list: any
     IC_param_list: any
     T_list: any
-
-        
-@dataclass
-class Opt_Config_2:
-    search_method: str
-    ls_method: str
-    its: str
-
-    def __repr__(self):
-        return (f"{self.search_method}_{self.ls_method}-{self.its}")
 
 
 class VP_Float_Settings:

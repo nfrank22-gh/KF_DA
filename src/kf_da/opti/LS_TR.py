@@ -1,6 +1,15 @@
 import jax.numpy as jnp
 
 class ArmijoLineSearch:
+    """
+    Backtracking line search enforcing the Armijo sufficient-decrease condition:
+        f(x + α p) ≤ f(x) + c · α · ∇f(x)ᵀ p
+
+    alpha_init: starting step size (1.0 works well with quasi-Newton directions)
+    rho:        per-iteration reduction factor (0.5 halves the step each backtrack)
+    c:          sufficient-decrease constant (1e-4 is the standard Nocedal & Wright value)
+    max_iters:  caps backtracking; final iterate is accepted unconditionally
+    """
     name = "ArmBT"
     def __init__(
         self,
