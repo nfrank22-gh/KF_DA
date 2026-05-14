@@ -25,13 +25,15 @@ class Loss_and_Deriv_fns:
         vfloat,
         allow_dynamic_PP_opt=True,
         checkpoint=False,
+        meas_part_vel=None,
     ):
         xp_meas_traj, yp_meas_traj = meas_part_pos
 
         self.allow_dynamic_PP_opt = allow_dynamic_PP_opt
 
         gen_loss_fn = create_loss_fn(
-            loss_crit, stepper, target_trj, pp_sigma, meas_part_pos, inv_transform, checkpoint=checkpoint
+            loss_crit, stepper, target_trj, pp_sigma, meas_part_pos, inv_transform,
+            checkpoint=checkpoint, meas_part_vel=meas_part_vel,
         )
         self.gen_loss_fn = gen_loss_fn
 

@@ -139,8 +139,8 @@ def load_config():
         opti =  Joint_Opt(
                 state_opt=BFGS(
                 ls=BT_ls, 
-                its=20, max_mem=20, eps_H=1e-8, print_loss=True),
-                PP_opt_its=2, opt_loops=3
+                its=25, max_mem=20, eps_H=1e-8, print_loss=True),
+                PP_opt_its=5, opt_loops=6
                 )
     sysSet = daExpConfig["sysSet"]
     kf_opts = KF_Opts(
@@ -156,9 +156,11 @@ def load_config():
         sigma_y=da_set["sigma_y"],
         x__y_sigma=da_set["x__y_sigma"],
         m_dt=da_set["m_dt"],
+        sigma_vy=da_set.get("sigma_vy", 0.0),
+        vx__vy_sigma=da_set.get("vx__vy_sigma", 1.0),
         n_particles_list=da_set["n_particles_list"],
         NT_list=da_set["NT_list"],
-        part_opts=Particle_Opts(St=0, beta=0),
+        part_opts=Particle_Opts(St=sysSet["St"], beta=0),
         PIC_seed_list=[0],
         num_opt_inits=da_set["num_opt_inits"],
         TIC_seed_list=[i for i in range(da_set["num_Tic"])],
@@ -185,7 +187,6 @@ def load_config():
 
 
 
-
 def main():
     DA_opts, kf_opts = load_config()
     
@@ -200,14 +201,16 @@ def main():
             f"-St={DA_opts.part_opts.St}_beta={DA_opts.part_opts.beta}_{DA_opts.ic_init}"
         )
     
-    if DA_opts.sigma_y > 0:
-        root = os.path.join(
-           create_results_dir(), f"DA-sigma_y={DA_opts.sigma_y}--x__y_sigma={DA_opts.x__y_sigma}", case_name
+    if DA_opts.sigma_vy > 0:
+        noise_dir = (
+            f"DA-sigma_y={DA_opts.sigma_y}--x__y_sigma={DA_opts.x__y_sigma}"
+            f"--sigma_vy={DA_opts.sigma_vy}--vx__vy_sigma={DA_opts.vx__vy_sigma}"
         )
+    elif DA_opts.sigma_y > 0:
+        noise_dir = f"DA-sigma_y={DA_opts.sigma_y}--x__y_sigma={DA_opts.x__y_sigma}"
     else:
-        root = os.path.join(
-           create_results_dir(), "DA-no_noise", case_name
-        )
+        noise_dir = "DA-no_noise"
+    root = os.path.join(create_results_dir(), noise_dir, case_name)
 
     DA_exp_main(kf_opts, DA_opts, root)
     parquet_to_excel(os.path.join(root, "results.parquet"), os.path.join(root, "results.xlsx"))

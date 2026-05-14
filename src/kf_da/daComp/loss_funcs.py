@@ -11,9 +11,13 @@ def create_loss_fn(
     meas_part_pos,
     inv_transform,
     checkpoint=False,
+    meas_part_vel=None,
 ):
     omega_traj, _, _, up_traj, vp_traj = target_trj
     xp_meas_traj, yp_meas_traj = meas_part_pos
+
+    if meas_part_vel is not None:
+        up_meas_traj, vp_meas_traj = meas_part_vel
 
     num_parts = xp_meas_traj.shape[0] * xp_meas_traj.shape[1]
 
@@ -80,12 +84,23 @@ def create_loss_fn(
 
                 loss_t = lax.cond(init_part, use_DA, use_trg, operand=None)
 
+                if meas_part_vel is not None:
+                    up_reset = lax.dynamic_index_in_dim(
+                        up_meas_traj, meas_idx, axis=0, keepdims=False
+                    )
+                    vp_reset = lax.dynamic_index_in_dim(
+                        vp_meas_traj, meas_idx, axis=0, keepdims=False
+                    )
+                else:
+                    up_reset = up_trg
+                    vp_reset = vp_trg
+
                 return (
                     omega_DA,
                     xp_opt,
                     yp_opt,
-                    up_trg,
-                    vp_trg,
+                    up_reset,
+                    vp_reset,
                     True,
                     meas_idx + 1,
                 ), loss_t

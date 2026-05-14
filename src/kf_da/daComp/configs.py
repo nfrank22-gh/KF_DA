@@ -34,6 +34,8 @@ class DA_Opts:
     crit_list: any
     IC_param_list: any
     T_list: any
+    sigma_vy: float = 0.0
+    vx__vy_sigma: float = 1.0
 
 
 class VP_Float_Settings:

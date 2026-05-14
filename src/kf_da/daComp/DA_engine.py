@@ -110,6 +110,11 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
     DA_opts : DA_Opts
         Data assimilation experiment configuration.
     """
+    if DA_opts.sigma_vy > 0 and DA_opts.sigma_y == 0:
+        raise ValueError("Velocity noise (sigma_vy > 0) requires position noise (sigma_y > 0).")
+    if DA_opts.sigma_vy > 0 and DA_opts.part_opts.St == 0:
+        raise ValueError("Velocity noise (sigma_vy > 0) requires inertial particles (St > 0).")
+
     # Load attractor snapshots and compute attractor size scale
     attractor_snapshots = load_data(kf_opts)
     attractor_rad = DA_opts.ic_init.get_attractor_snaps(attractor_snapshots)
@@ -182,6 +187,7 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                         #tuple (omega_traj, xp_traj, yp_traj, up_traj, vp_traj)
                         target_trj = trj_gen_fn(omega0_hat, xp, yp, up, vp)
                         xp_traj, yp_traj = target_trj[1], target_trj[2]
+                        up_traj, vp_traj = target_trj[3], target_trj[4]
 
                         if DA_opts.sigma_y > 0:
                             sigma_x = DA_opts.x__y_sigma * DA_opts.sigma_y
@@ -209,6 +215,19 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                             xp_traj_DA = xp_traj
                             yp_traj_DA = yp_traj
 
+                        # Noisy velocity observations for inertial particles.
+                        # Uses a separate PRNG stream derived via fold_in to avoid
+                        # disturbing the existing x/y position key derivation.
+                        if DA_opts.part_opts.St > 0 and DA_opts.sigma_vy > 0:
+                            sigma_vx = DA_opts.vx__vy_sigma * DA_opts.sigma_vy
+                            vel_key = jax.random.fold_in(jax.random.PRNGKey(PIC_seed), 1)
+                            vx_key, vy_key = jax.random.split(vel_key)
+                            up_traj_DA = up_traj + sigma_vx * jax.random.normal(vx_key, up_traj.shape)
+                            vp_traj_DA = vp_traj + DA_opts.sigma_vy * jax.random.normal(vy_key, vp_traj.shape)
+                        else:
+                            up_traj_DA = None
+                            vp_traj_DA = None
+
 
                         for loss_crit in DA_opts.crit_list:
                             t_mask = get_tmask(T, NT, kf_opts.dt, DA_opts.m_dt, loss_crit)
@@ -216,6 +235,10 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                             crit_dir = os.path.join(PI_root, f"{loss_crit}")
 
                             DA_part_pos_trj = (xp_traj_DA[t_mask, :], yp_traj_DA[t_mask, :])
+                            if up_traj_DA is not None:
+                                meas_part_vel = (up_traj_DA[t_mask, :], vp_traj_DA[t_mask, :])
+                            else:
+                                meas_part_vel = None
                         
                             # For each optimizer and loss criterion, run a DA case
                             for optimizer in DA_opts.optimizer_list:
@@ -241,7 +264,7 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                                             pp_sigma = None
 
                                         checkpoint = True
-                                        loss_fn_and_derivs = Loss_and_Deriv_fns(loss_crit, IC_param.inv_transform, stepper, kf_stepper, target_trj, pp_sigma, DA_part_pos_trj, kf_opts.dt, T, vfloat, checkpoint=checkpoint)
+                                        loss_fn_and_derivs = Loss_and_Deriv_fns(loss_crit, IC_param.inv_transform, stepper, kf_stepper, target_trj, pp_sigma, DA_part_pos_trj, kf_opts.dt, T, vfloat, checkpoint=checkpoint, meas_part_vel=meas_part_vel)
                                         if optimizer.psuedo_proj is not None:
                                             optimizer.psuedo_proj.attach_transform(IC_param.transform, IC_param.inv_transform)
                                         
