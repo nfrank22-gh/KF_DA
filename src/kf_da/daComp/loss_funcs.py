@@ -190,7 +190,7 @@ class MSE_PP(Loss_fn):
         return self.t_mask[i] * ((MSE_x + MSE_y) / 2.0) / self.num_frames
 
     def __repr__(self):
-        return "MSE_PP"
+        return "PP_MSE"
     
 class MSE_Vel(Loss_fn):
     @staticmethod
