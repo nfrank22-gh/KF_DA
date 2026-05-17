@@ -417,7 +417,8 @@ def plot_convergence(opt_data, save_dir, y_min=1e-18):
     loss_plot    = _pos_or_nan(loss)
     grad_plot    = _pos_or_nan(grad_norm)
     descent_plot = _pos_or_nan(-alpha_gTp)
-
+    if len(loss_plot) == 0 or len(grad_plot) == 0 or len(descent_plot) == 0:
+        return
     # Common y-limits (log): small positive floor to avoid 0
     candidates = [np.nanmax(loss_plot), np.nanmax(grad_plot), np.nanmax(descent_plot)]
     finite_cands = [c for c in candidates if np.isfinite(c)]
