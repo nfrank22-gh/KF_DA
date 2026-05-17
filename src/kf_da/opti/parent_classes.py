@@ -302,7 +302,7 @@ class LS_TR_Opt():
             else:
                 Z0, loss, grad, alpha, alpha_pk, diag_str = self.inner_loop(Z0, grad, loss, loss_fn_and_derivs, i, last_iteration=False)
 
-            if alpha == 0:
+            if alpha == 0 or jnp.isnan(loss):
                 if self.print_loss:
                     print(f"optimizer stalled | alpha={alpha}")
 

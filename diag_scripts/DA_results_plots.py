@@ -10,8 +10,10 @@ import pandas as pd
 import yaml
 
 from kf_da.utils.plotting_utils import save_svg 
-from kf_da.utils.create_results_dir import create_results_dir
-
+def create_results_dir():
+    with open("../kf-da-configs/data_dir_plots.txt", "r") as f:
+        root = f.read().rstrip("\n")
+    return root
 
 # ---------------------------------------------------------------------------
 # Shared helper
@@ -53,6 +55,7 @@ def m_dep_fig(cfg: dict):
         "DA-no_noise",
         f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
     )
+    print(root)
     save_root = os.path.join(root, "global_results", "mx_v_mt")
     os.makedirs(save_root, exist_ok=True)
     df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
@@ -95,7 +98,7 @@ def recon_v_m_dt(cfg: dict):
     NT        = cfg["NT"]
     n_part    = cfg["n_part"]
     metric    = cfg.get("metric", "final_snap_rel_error")
-    loss_crit = cfg.get("loss_crit", "MSE_PP")
+    loss_crit = cfg["loss_crit"]
 
     pattern = re.compile(
         rf"^DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt=(\d*\.?\d+)-St={St}_beta={beta}_AI$"
@@ -208,7 +211,6 @@ def embedding_fig(cfg: dict):
     plt.legend()
     save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type, "embedding_fig.svg"))
     plt.close(fig)
-
 
 # ---------------------------------------------------------------------------
 # Config loader and registry

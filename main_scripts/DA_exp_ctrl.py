@@ -139,7 +139,7 @@ def load_config():
         opti =  Joint_Opt(
                 state_opt=BFGS(
                 ls=BT_ls, 
-                its=25, max_mem=20, eps_H=1e-8, print_loss=True),
+                its=25, max_mem=20, eps_H=1e-10, print_loss=True),
                 PP_opt_its=5, opt_loops=6
                 )
     sysSet = daExpConfig["sysSet"]

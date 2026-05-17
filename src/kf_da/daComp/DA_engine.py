@@ -265,17 +265,20 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
 
                                         checkpoint = True
                                         optimize_velocity = isinstance(optimizer, Joint_Opt) and meas_part_vel is not None
+
+
                                         loss_fn_and_derivs = Loss_and_Deriv_fns(loss_crit, IC_param.inv_transform, stepper, kf_stepper, target_trj, pp_sigma, DA_part_pos_trj, kf_opts.dt, T, vfloat, checkpoint=checkpoint, meas_part_vel=meas_part_vel, optimize_velocity=optimize_velocity)
                                         if optimizer.psuedo_proj is not None:
                                             optimizer.psuedo_proj.attach_transform(IC_param.transform, IC_param.inv_transform)
 
                                         if isinstance(optimizer, Joint_Opt):
                                             vel_trj_gen_fn = create_vel_trj_gen_fn(kf_stepper, T)
+                                            loss_fn_norm_factor = 2 * (NT * npart)
                                             if optimize_velocity:
                                                 vel_sigma = (DA_opts.vx__vy_sigma * DA_opts.sigma_vy, DA_opts.sigma_vy)
-                                                optimizer.set_inertial_pp_loss_fn(loss_fn_and_derivs.gen_loss_fn, loss_fn_and_derivs.PP_opt_default, pp_sigma, stepper.NS.L, vel_trj_gen_fn, t_mask, DA_part_pos_trj[0].shape, kf_opts.dt, vel_sigma)
+                                                optimizer.set_inertial_pp_loss_fn(loss_fn_and_derivs.gen_loss_fn, loss_fn_and_derivs.PP_opt_default, pp_sigma, stepper.NS.L, vel_trj_gen_fn, t_mask, DA_part_pos_trj[0].shape, kf_opts.dt, vel_sigma, loss_fn_norm_factor)
                                             else:
-                                                optimizer.set_pp_loss_fn(loss_fn_and_derivs.gen_loss_fn, loss_fn_and_derivs.PP_opt_default, pp_sigma, stepper.NS.L, vel_trj_gen_fn, t_mask, DA_part_pos_trj[0].shape, kf_opts.dt)
+                                                optimizer.set_pp_loss_fn(loss_fn_and_derivs.gen_loss_fn, loss_fn_and_derivs.PP_opt_default, pp_sigma, stepper.NS.L, vel_trj_gen_fn, t_mask, DA_part_pos_trj[0].shape, kf_opts.dt, loss_fn_norm_factor)
 
 
                                         if not isinstance(DA_opts.ic_init, AI):

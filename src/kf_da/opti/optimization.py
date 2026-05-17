@@ -19,7 +19,7 @@ class Joint_Opt:
     def periodic_diff(a, b):
         return (a - b + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
-    def set_pp_loss_fn(self, gen_loss_fn, PP_opt_default, pp_sigma, spatial_L, vel_trj_gen_fn, t_mask, part_arr_shape, dt):
+    def set_pp_loss_fn(self, gen_loss_fn, PP_opt_default, pp_sigma, spatial_L, vel_trj_gen_fn, t_mask, part_arr_shape, dt, loss_fn_norm_factor):
         sigma_x, sigma_y = pp_sigma
         n_parts = PP_opt_default.shape[0] // 2
         self.n_parts = n_parts
@@ -36,11 +36,10 @@ class Joint_Opt:
             dx = self.periodic_diff(xp_opt, xp_meas)
             dy = self.periodic_diff(yp_opt, yp_meas)
 
-            pp_opt_reg = 0.5 * (
-                jnp.mean(dx**2) / sigma_x**2
-                + jnp.mean(dy**2) / sigma_y**2
-            ) * jnp.sqrt(sigma_x * sigma_y)
-
+            pp_opt_reg = (
+                jnp.sum(dx**2) / sigma_x**2
+                + jnp.sum(dy**2) / sigma_y**2
+            ) / loss_fn_norm_factor
             return gen_loss_fn(Z0, PP_opt) + pp_opt_reg
 
         self.loss_grad_fn_pp = jax.jit(jax.value_and_grad(PP_opt_loss_fn, argnums=1))
@@ -55,7 +54,7 @@ class Joint_Opt:
         self.part_arr_shape = part_arr_shape
         self.dt = dt
 
-    def set_inertial_pp_loss_fn(self, gen_loss_fn, PP_opt_default, pp_sigma, spatial_L, vel_trj_gen_fn, t_mask, part_arr_shape, dt, vel_sigma):
+    def set_inertial_pp_loss_fn(self, gen_loss_fn, PP_opt_default, pp_sigma, spatial_L, vel_trj_gen_fn, t_mask, part_arr_shape, dt, vel_sigma, loss_fn_norm_factor):
         self.inertial = True
         sigma_x, sigma_y = pp_sigma
         sigma_vx, sigma_vy = vel_sigma
@@ -82,15 +81,15 @@ class Joint_Opt:
             dux = up_opt - up_meas
             dvy = vp_opt - vp_meas
 
-            pp_opt_reg = 0.5 * (
+            pp_opt_reg = (
                 jnp.mean(dx**2) / sigma_x**2
                 + jnp.mean(dy**2) / sigma_y**2
-            ) * jnp.sqrt(sigma_x * sigma_y)
+            ) / loss_fn_norm_factor
 
             vp_opt_reg = 0.5 * (
                 jnp.mean(dux**2) / sigma_vx**2
                 + jnp.mean(dvy**2) / sigma_vy**2
-            ) * jnp.sqrt(sigma_vx * sigma_vy)
+            ) / loss_fn_norm_factor
 
             return gen_loss_fn(Z0, PP_opt_w) + pp_opt_reg + vp_opt_reg
 
@@ -122,6 +121,8 @@ class Joint_Opt:
         for i in range(self.PP_opt_its):
             loss, grad = self.loss_grad_fn_pp(Z0, self.PP_opt)
             print(loss)
+            if jnp.isnan(loss):
+                break
 
             H = self.hess_fn_pp(Z0, self.PP_opt)
             eigvals, eigvecs = jnp.linalg.eigh(H)

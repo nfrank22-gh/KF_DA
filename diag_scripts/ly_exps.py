@@ -1,15 +1,15 @@
 import jax
 import jax.numpy as jnp
-from SRC.utils import load_data
-from SRC.DA_Comp.configs import KF_Opts
+from kf_da.utils.utils import load_data
+from kf_da.daComp import KF_Opts
 import random
 import multiprocessing as mp
 import os 
 jax.config.update("jax_enable_x64", True)
 #jax.config.update("jax_default_device", jax.devices("cpu")[0])
-from ..create_results_dir import..create_results_dir
+from kf_da.utils.create_results_dir import create_results_dir
 import jax.numpy as jnp
-from SRC.Solver.solver import KF_Stepper
+from kf_da.solver.solver import KF_Stepper
 
 def kaplan_yorke_dimension(lyap: jnp.ndarray) -> jnp.ndarray:
     """
@@ -150,11 +150,11 @@ import jax.numpy as jnp
 
 def ly_exp_main():
     kf_opts = KF_Opts(
-        Re = 60,   
+        Re = 200,   
         n = 4,
-        NDOF = 128,
-        dt = 1e-2,
-        total_T=int(1e4),
+        NDOF = 256,
+        dt = 2.5e-3,
+        total_T=int(1e3),
         min_samp_T=100,
         t_skip=1e-1
     )
@@ -165,7 +165,7 @@ def ly_exp_main():
     T_skip = 1
 
     root = os.path.join(
-       ..create_results_dir(),
+       create_results_dir(),
         "Ly_Exps",
         f"Re={kf_opts.Re}_NDOF={kf_opts.NDOF}_dt={kf_opts.dt}_T={T}"
     )
