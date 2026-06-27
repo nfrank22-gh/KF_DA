@@ -12,6 +12,59 @@ def create_results_dir():
         root = f.read().rstrip("\n")
     return root
 
+def stokes_comp():
+    Re = 100
+    NT = 4
+    n_part_list = [20, 40, 80]
+
+    NDOF = 128
+    dt = 1e-2
+    n           = 4
+    beta        = 0
+    m_dt        = None
+    metric      = "final_snap_rel_error"
+    loss_crit   = "PP_MSE"
+    optimizer   = "L-BFGS_ArmBT-150"
+
+    stokes_num_list = [0, 0.01, .25, 0.5, 1, 2, 5]
+
+    means = {St: [] for St in stokes_num_list}
+
+    for St in stokes_num_list:
+        root = os.path.join(
+            create_results_dir(),
+            "DA-no_noise",
+        )
+        root = os.path.join(
+            root,
+            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
+        )
+
+        if os.path.isdir(root):
+            df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
+            df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit) & (df["optimizer"] == optimizer)]
+
+            for n_part in n_part_list:
+                df_npart = df[df["n_part"] == n_part]
+                metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
+                if len(metric_arr) == 0:
+                    continue
+                means[St].append((n_part, np.mean(metric_arr)))
+
+    fig, ax = plt.subplots()
+    for St in stokes_num_list:
+        pts = means[St]
+        if not pts:
+            continue
+        nparts, vals = zip(*pts)
+        ax.plot(nparts, vals, marker="o", label=f"St={St}")
+
+    ax.set_xlabel("Number of particles")
+    ax.set_ylabel(f"Mean {metric}")
+    ax.set_title(f"Reconstruction error vs Stokes number (NT={NT}, Re={Re})")
+    ax.legend()
+    plt.tight_layout()
+    save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp.svg"))
 
 def noise_levels():
     Re = 100
@@ -34,7 +87,6 @@ def noise_levels():
     means = {sigma_y: [] for sigma_y in sigma_y_list}
 
     for sigma_y in sigma_y_list:
-        print(sigma_y)
         if sigma_y == 0:
             root = os.path.join(
                 create_results_dir(),
@@ -81,7 +133,7 @@ def noise_levels():
 def optimizer_comp(
     optimizer_a: str = "L-BFGS_ArmBT-150",
     optimizer_b: str = "JO-6X-L-BFGS_ArmBT-25",
-    sigma_y: float = 0.01,
+    sigma_y: float = 0.001,
     
 ):
     Re = 100
@@ -137,6 +189,7 @@ def optimizer_comp(
     ax.set_xlabel("Number of particles")
     ax.set_ylabel(f"Mean {metric}")
     ax.set_title(f"Optimizer comparison ({sigma_label}, NT={NT}, Re={Re})")
+    ax.set_ylim(0, 1)
     ax.legend()
     plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "optimizer_comp.svg"))

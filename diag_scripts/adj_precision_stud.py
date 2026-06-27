@@ -430,7 +430,7 @@ def write_fit_params_into_results(results: dict, df: pd.DataFrame) -> dict:
 # =========================
 # Plotting
 # =========================
-def plot_metrics_vs_mbits(df, path, dt):
+def plot_metrics_vs_mbits(df, path, dt, mbits):
     os.makedirs(path, exist_ok=True)
 
     # Ensure columns exist (NEW)
@@ -477,7 +477,8 @@ def plot_metrics_vs_mbits(df, path, dt):
     # Plot mean + all individual curves in lighter grey
     # Store fit params into df
     # ---------------------------
-    for mbit, mbit_df in df.groupby("mbits"):
+    for mbit in mbits:
+        mbit_df = df[df["mbits"] == mbit]
         fig = plt.figure()
 
         all_err = np.asarray(mbit_df["adj_rel_error_v_time_all"].iloc[0])     # (nsamples, time)
@@ -535,8 +536,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def plot_fit_params_v_m(df, path):
-    mbits = df["mbits"].to_numpy()
+def plot_fit_params_v_m(df, path, mbits):
+    mbits = np.asarray(mbits)
+    df = df[df["mbits"].isin(mbits)]
     y_int = df["y_int"].to_numpy()
     slope = df["slope"].to_numpy()
 
@@ -658,8 +660,8 @@ def adjoint_test():
 
     df = results_dict_to_df(results)
     df = df[df["mbits"] != 2]
-    df = plot_metrics_vs_mbits(df, path, kf_opts.dt)
-    plot_fit_params_v_m(df, path)
+    df = plot_metrics_vs_mbits(df, path, kf_opts.dt, mbits_list)
+    plot_fit_params_v_m(df, path, mbits_list)
     # Write parameters back into results + re-save (so dataset has the fit params)
     #results = write_fit_params_into_results(results, df)
 
@@ -877,7 +879,7 @@ def test():
     print(jnp.linalg.norm(grad_true - lam_n)/jnp.linalg.norm(grad_true))
 
 def mbit_dep_plot(Re=100, NDOF=128, T=13.2, dt=1e-2):
-    mbits_list = [6, 8, 10, 12, 14]
+    mbits_list = [6, 8, 10, 12]
     root = os.path.join(
         create_results_dir(),
         "vpfloats",

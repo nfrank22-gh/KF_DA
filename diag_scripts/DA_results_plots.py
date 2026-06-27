@@ -164,13 +164,12 @@ def embedding_fig(cfg: dict):
     beta        = cfg.get("beta", 0)
     m_dt        = cfg.get("m_dt", None)
     noise_type  = cfg.get("noise_type", "DA-no_noise")
-    config_list = cfg["config_list"]   # list of [Re, NDOF, dt, NT]
-    dM_dict     = cfg["dM_dict"]       # {Re: dM} — inertial manifold dimension estimate per Re
+    config_list = cfg["config_list"]
+    dM_dict     = cfg["dM_dict"]
     metric      = cfg.get("metric", "final_snap_rel_error")
     loss_crit   = cfg.get("loss_crit", "MSE_PP")
 
     Re_list, dM_list, m_list, metric_list = [], [], [], []
-
     for Re, NDOF, dt, NT in config_list:
         root = os.path.join(
             create_results_dir(),
@@ -180,7 +179,6 @@ def embedding_fig(cfg: dict):
         if os.path.isdir(root):
             df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
             df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit)]
-
             for n_part, df_npart in df.groupby("n_part", sort=True):
                 metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
                 if len(metric_arr) == 0:
@@ -193,22 +191,42 @@ def embedding_fig(cfg: dict):
     dM_arr     = np.array(dM_list)
     m_arr      = np.array(m_list)
     metric_arr = np.array(metric_list)
+    Re_arr     = np.array(Re_list)
 
     if dM_arr.size == 0:
         print("embedding_fig: no matching data found — check config_list and NT values.")
         return
 
+    # Build a mapping from dM -> Re for the top axis ticks
+    dM_to_Re = {}
+    for dM, Re in zip(dM_list, Re_list):
+        dM_to_Re[dM] = Re  # last Re wins if multiple share a dM value
+
     dM_x = np.linspace(dM_arr.min(), dM_arr.max(), 100)
 
-    fig = plt.figure(figsize=(6, 5))
-    sc = plt.scatter(dM_arr, m_arr, c=metric_arr, s=80, vmin=0.0, vmax=0.5)
-    plt.plot(dM_x, dM_x,       label="immersion line")
-    plt.plot(dM_x, 2 * dM_x + 1, label="embedding line")
-    plt.colorbar(sc).set_label("Mean Metric")
-    plt.xlabel("IM dimension")
-    plt.ylabel("m = NT * n_part * 2")
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    sc = ax.scatter(dM_arr, m_arr, c=metric_arr, s=80, vmin=0.0, vmax=0.5)
+    ax.plot(dM_x, dM_x,           label="immersion line")
+    ax.plot(dM_x, 2 * dM_x + 1,   label="embedding line")
+    fig.colorbar(sc, ax=ax).set_label("Mean Metric")
+    ax.set_xlabel("IM dimension")
+    ax.set_ylabel("m = NT * n_part * 2")
+    ax.legend()
+
+    # --- second x-axis at the top ---
+    ax2 = ax.twiny()
+    ax2.set_xlim(ax.get_xlim())  # keep axes in sync
+
+    unique_dM = sorted(dM_to_Re.keys())
+    unique_Re = [dM_to_Re[dM] for dM in unique_dM]
+
+    ax2.set_xticks(unique_dM)
+    ax2.set_xticklabels([f"{Re}" for Re in unique_Re])
+    ax2.set_xlabel("Reynolds number (Re)")
+    # --------------------------------
+
     plt.tight_layout()
-    plt.legend()
     save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type, "embedding_fig.svg"))
     plt.close(fig)
 
