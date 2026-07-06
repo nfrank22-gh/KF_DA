@@ -4,7 +4,10 @@ from jax import lax
 import functools
 from kf_da.vp_floats.vp_py_utils import choose_exponent_format, calc_output_shape
 from kf_da.solver.solver import Omega_Integrator
-import vpfloat
+try:
+    import vpfloat  # Linux-only compiled extension; VP-float paths require it
+except ImportError:
+    vpfloat = None
 import numpy as np
 from jax import ShapeDtypeStruct
 # ---------- Small utilities ----------

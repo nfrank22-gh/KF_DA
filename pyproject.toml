@@ -9,7 +9,8 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fastparquet>=2026.3.0",
-    "jax[cuda13]>=0.10.0",
+    "jax>=0.10.0",
+    "jax[cuda13]>=0.10.0; sys_platform == 'linux'",
     "matplotlib>=3.10.9",
     "numpy>=2.4.4",
     "openpyxl>=3.1.5",
@@ -17,7 +18,7 @@ dependencies = [
     "pandas>=3.0.2",
     "pyarrow>=24.0.0",
     "pyyaml>=6.0.3",
-    "vpfloat",
+    "vpfloat; sys_platform == 'linux'",
 ]
 
 [project.scripts]
@@ -28,4 +29,4 @@ requires = ["uv_build>=0.11.8,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-vpfloat = { path = "wheels/vpfloat-0.1.0-cp314-cp314-linux_x86_64.whl" }
+vpfloat = { path = "wheels/vpfloat-0.1.0-cp314-cp314-linux_x86_64.whl", marker = "sys_platform == 'linux'" }

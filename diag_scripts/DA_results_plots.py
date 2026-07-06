@@ -19,19 +19,24 @@ def create_results_dir():
 # Shared helper
 # ---------------------------------------------------------------------------
 
-def remove_outliers_by_loss(df, metric):
-    loss_traces = np.vstack(df["loss_record"].to_numpy())
-    final_loss = loss_traces[:, -1]
-
+def outlier_mask_by_loss(final_loss):
+    """Boolean mask marking outliers via the modified z-score on final loss."""
     median = np.median(final_loss)
     mad = np.median(np.abs(final_loss - median))
 
     if mad == 0:
-        # All losses identical or single sample — keep everything
-        return df[metric].to_numpy(), final_loss
+        # All losses identical or single sample — nothing is an outlier
+        return np.zeros(final_loss.shape, dtype=bool)
 
     modified_z = 0.6745 * (final_loss - median) / mad
-    mask = np.abs(modified_z) < 3.5
+    return np.abs(modified_z) >= 3.5
+
+
+def remove_outliers_by_loss(df, metric):
+    loss_traces = np.vstack(df["loss_record"].to_numpy())
+    final_loss = loss_traces[:, -1]
+
+    mask = ~outlier_mask_by_loss(final_loss)
     return df.loc[mask, metric].to_numpy(), final_loss[mask]
 
 
@@ -158,6 +163,76 @@ def recon_v_m_dt(cfg: dict):
     plt.close(fig)
 
 
+def _as_list(x):
+    return list(x) if isinstance(x, (list, tuple)) else [x]
+
+
+def recon_v_final_loss(cfg: dict):
+    Re          = cfg["Re"]
+    n           = cfg["n"]
+    dt          = cfg["dt"]
+    NDOF        = cfg["NDOF"]
+    St_list     = _as_list(cfg.get("St", 0))
+    beta        = cfg.get("beta", 0)
+    m_dt        = cfg.get("m_dt", None)
+    NT          = cfg["NT"]
+    n_part      = cfg["n_part"]
+    metric      = cfg.get("metric", "final_snap_rel_error")
+    loss_crit   = cfg["loss_crit"]
+    noise_types = _as_list(cfg.get("noise_type", "DA-no_noise"))
+    ylim        = cfg.get("ylim", None)
+    xlim        = cfg.get("xlim", None)
+
+    for noise_type in noise_types:
+        for St in St_list:
+            root = os.path.join(
+                create_results_dir(),
+                noise_type,
+                f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
+            )
+            results_path = os.path.join(root, "results.parquet")
+            if not os.path.exists(results_path):
+                print(f"recon_v_final_loss: no results at {results_path}")
+                continue
+
+            df = pd.read_parquet(results_path).dropna()
+            df = df[(df["n_part"] == n_part) & (df["NT"] == NT) & (df["loss_crit"] == loss_crit)]
+            if df.empty:
+                print(
+                    f"recon_v_final_loss: no runs for NT={NT}, n_part={n_part}, "
+                    f"loss_crit={loss_crit} in {noise_type}, St={St}"
+                )
+                continue
+
+            final_loss = np.vstack(df["loss_record"].to_numpy())[:, -1]
+            metric_arr = df[metric].to_numpy()
+            outliers   = outlier_mask_by_loss(final_loss)
+
+            fig = plt.figure()
+            plt.scatter(final_loss[~outliers], metric_arr[~outliers],
+                        label=f"kept (n={np.sum(~outliers)}, mean={np.mean(metric_arr[~outliers]):.3f})")
+            if outliers.any():
+                plt.scatter(final_loss[outliers], metric_arr[outliers],
+                            color="tab:red", marker="x", s=60,
+                            label=f"outlier (n={np.sum(outliers)})")
+
+            plt.legend()
+            plt.title(f"NT={NT}, n_part={n_part} | loss_crit={loss_crit} | St={St}\n{noise_type}")
+            plt.xlabel("final loss")
+            plt.ylabel(metric)
+            plt.xscale("log")
+            if ylim is not None:
+                plt.ylim(*ylim)
+            if xlim is not None:
+                plt.xlim(*xlim)
+            plt.tight_layout()
+
+            save_root = os.path.join(root, "global_results", "recon_v_final_loss")
+            os.makedirs(save_root, exist_ok=True)
+            save_svg(mpl, fig, os.path.join(save_root, f"NT={NT}_n_part={n_part}_{loss_crit}.svg"))
+            plt.close(fig)
+
+
 def embedding_fig(cfg: dict):
     n           = cfg["n"]
     St          = cfg.get("St", 0)
@@ -237,6 +312,7 @@ def embedding_fig(cfg: dict):
 REGISTRY = {
     "m_dep_fig":    m_dep_fig,
     "recon_v_m_dt": recon_v_m_dt,
+    "recon_v_final_loss": recon_v_final_loss,
     "embedding_fig": embedding_fig,
 }
 
