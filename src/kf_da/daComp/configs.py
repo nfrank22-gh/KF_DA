@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from kf_da.velInit.IC_init import IC_init
+from kf_da.solver.IC_gen import Fluid_Vel_Init
 from kf_da.vp_floats.vp_py_utils import choose_exponent_format, float_pos_range
 
 @dataclass
@@ -16,6 +17,7 @@ class KF_Opts:
 class Particle_Opts:
     St: float
     beta: float
+    vel_init: any = field(default_factory=Fluid_Vel_Init)
 
 @dataclass
 class DA_Opts:

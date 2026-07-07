@@ -1,4 +1,5 @@
-from kf_da.daComp import KF_Opts, DA_Opts, Particle_Opts, MSE_PP, DA_exp_main 
+from kf_da.daComp import KF_Opts, DA_Opts, Particle_Opts, MSE_PP, DA_exp_main
+from kf_da.solver.IC_gen import Fluid_Vel_Init, Gaussian_Vel_Init, Warmup_Vel_Init
 from kf_da.velInit import AI
 from kf_da.opti import ArmijoLineSearch, Joint_Opt, BFGS
 from kf_da.icParam import Fourier_Param
@@ -143,6 +144,15 @@ def load_config():
                 PP_opt_its=5, opt_loops=6
                 )
     sysSet = daExpConfig["sysSet"]
+    vel_init_name = sysSet.get("vel_init", "fluid")
+    if vel_init_name == "fluid":
+        vel_init = Fluid_Vel_Init()
+    elif vel_init_name == "gaussian":
+        vel_init = Gaussian_Vel_Init(std=sysSet.get("vel_init_std", 1.0))
+    elif vel_init_name == "warmup":
+        vel_init = Warmup_Vel_Init(T_w=sysSet["T_w"])
+    else:
+        raise ValueError(f"Unknown vel_init: {vel_init_name!r} (expected fluid, gaussian, or warmup)")
     kf_opts = KF_Opts(
         Re = sysSet["Re"], 
         n = 4,
@@ -160,7 +170,7 @@ def load_config():
         vx__vy_sigma=da_set.get("vx__vy_sigma", 1.0),
         n_particles_list=da_set["n_particles_list"],
         NT_list=da_set["NT_list"],
-        part_opts=Particle_Opts(St=sysSet["St"], beta=0),
+        part_opts=Particle_Opts(St=sysSet["St"], beta=0, vel_init=vel_init),
         PIC_seed_list=[0],
         num_opt_inits=da_set["num_opt_inits"],
         TIC_seed_list=[i for i in range(da_set["num_Tic"])],
@@ -199,6 +209,7 @@ def main():
     case_name = (
             f"DA_Re={kf_opts.Re}_n={kf_opts.n}_dt={kf_opts.dt}_NDOF={kf_opts.NDOF}_mdt={DA_opts.m_dt}"
             f"-St={DA_opts.part_opts.St}_beta={DA_opts.part_opts.beta}_{DA_opts.ic_init}"
+            f"{DA_opts.part_opts.vel_init}"
         )
     
     if DA_opts.sigma_vy > 0:

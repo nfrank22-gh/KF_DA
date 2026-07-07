@@ -2,7 +2,7 @@
 from kf_da.daComp.configs import *  # provides KF_Opts, DA_Opts, etc.
 from kf_da.utils.utils import load_data
 from kf_da.daComp.case_post_proc import post_proc_case_main
-from kf_da.solver.IC_gen import init_particles_vector
+from kf_da.solver.IC_gen import Fluid_Vel_Init, Warmup_Vel_Init
 from kf_da.solver.ploting import plot_particles
 from kf_da.daComp.loss_funcs import create_loss_fn, MSE_Vel
 from kf_da.opti.parent_classes import LS_TR_Opt, Loss_and_Deriv_fns
@@ -114,6 +114,14 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
         raise ValueError("Velocity noise (sigma_vy > 0) requires position noise (sigma_y > 0).")
     if DA_opts.sigma_vy > 0 and DA_opts.part_opts.St == 0:
         raise ValueError("Velocity noise (sigma_vy > 0) requires inertial particles (St > 0).")
+    vel_init = DA_opts.part_opts.vel_init
+    if DA_opts.part_opts.St == 0 and not isinstance(vel_init, Fluid_Vel_Init):
+        raise ValueError(
+            "Non-fluid velocity initialization requires inertial particles (St > 0); "
+            "tracer evolution ignores particle velocities."
+        )
+    if isinstance(vel_init, Warmup_Vel_Init):
+        vel_init.snapshot_offset(kf_opts.t_skip)  # fail fast on invalid T_w
 
     # Load attractor snapshots and compute attractor size scale
     attractor_snapshots = load_data(kf_opts)
@@ -138,16 +146,25 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
         seed_root = os.path.join(root, f"IC_seed={seed_idx}")
         os.makedirs(seed_root, exist_ok=True)
 
-        # Load or..create the target initial condition omega0_hat for this seed
+        # Load or..create the target initial condition omega0_hat for this seed.
+        # idx is re-derived deterministically from the seed either way; the
+        # warm-up velocity init needs it to locate the snapshot T_w earlier.
+        rng = np.random.default_rng(seed_idx)   # ← seed used HERE
+        idx = rng.integers(
+            low=0,
+            high=attractor_snapshots.shape[0],
+        )
         U_0_path = os.path.join(seed_root, "omega0_hat.npy")
         if os.path.exists(U_0_path):
             omega0_hat = np.load(U_0_path)
+            if isinstance(vel_init, Warmup_Vel_Init) and not np.allclose(
+                attractor_snapshots[idx, :], omega0_hat
+            ):
+                raise ValueError(
+                    f"Cached omega0_hat for seed {seed_idx} does not match attractor "
+                    f"snapshot idx={idx}; cannot locate the warm-up start state."
+                )
         else:
-            rng = np.random.default_rng(seed_idx)   # ← seed used HERE
-            idx = rng.integers(
-                low=0,
-                high=attractor_snapshots.shape[0],
-            )
             omega0_hat = attractor_snapshots[idx, :]
             np.save(U_0_path, omega0_hat)
 
@@ -177,10 +194,12 @@ def DA_exp_main(kf_opts: KF_Opts, DA_opts: DA_Opts, root) -> None:
                         PI_root = os.path.join(PI_root_base, f"seed_{PIC_seed}")
                         os.makedirs(PI_root, exist_ok=True)
 
-                        # Random particle ICs in the periodic domain
-                        u_hat, v_hat = stepper.NS.vort_hat_2_vel_hat(omega0_hat)
-                        u, v = jnp.fft.irfft2(u_hat), jnp.fft.irfft2(v_hat)
-                        xp, yp, up, vp = init_particles_vector(npart, u, v, (0, stepper.NS.L), (0, stepper.NS.L), stepper.NS.L, seed=PIC_seed)
+                        # Particle ICs: positions random in the periodic domain,
+                        # velocities per the configured init (fluid / gaussian / warmup)
+                        xp, yp, up, vp = vel_init.make_particle_IC(
+                            npart, PIC_seed, stepper, omega0_hat,
+                            warmup_ctx=(attractor_snapshots, idx, kf_opts.t_skip),
+                        )
                         particle_IC = (xp, yp, up, vp)
 
                         trj_gen_fn = create_omega_part_gen_fn(jax.jit(stepper), T)
