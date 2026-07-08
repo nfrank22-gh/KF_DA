@@ -1,10 +1,11 @@
-import numpy as np
-import jax.numpy as jnp
-from kf_da.utils.utils import bilinear_sample_periodic, Specteral_Upsampling
-
-
 import jax
 import jax.numpy as jnp
+from kf_da.utils.utils import bilinear_sample_periodic
+
+# Particle warmup time (in time units) applied to every DA case; a hidden
+# constant rather than a config knob so all experiments share it (ADR-0002).
+T_WARMUP = 100.0
+
 
 def init_particles_vector(
     n: int,
@@ -28,77 +29,58 @@ def init_particles_vector(
     return xs, ys, us, vs
 
 
-def _fluid_particle_IC(npart, seed, stepper, omega_hat):
+def _uniform_positions(npart, key, L):
+    kx, ky = jax.random.split(key)
+    xs = jax.random.uniform(kx, shape=(npart,), minval=0.0, maxval=L)
+    ys = jax.random.uniform(ky, shape=(npart,), minval=0.0, maxval=L)
+    return xs, ys
+
+
+def _fluid_velocities(xs, ys, stepper, omega_hat):
     u_hat, v_hat = stepper.NS.vort_hat_2_vel_hat(omega_hat)
     u, v = jnp.fft.irfft2(u_hat), jnp.fft.irfft2(v_hat)
     L = stepper.NS.L
-    return init_particles_vector(npart, u, v, (0, L), (0, L), L, seed=seed)
+    us = bilinear_sample_periodic(u, xs, ys, L, L)
+    vs = bilinear_sample_periodic(v, xs, ys, L, L)
+    return us, vs
 
 
-class Fluid_Vel_Init:
-    """Velocity = fluid velocity at the particle position (current default)."""
+class Equilibrium_Init:
+    """Scatter particles uniform-random on the warm-start snapshot (T_WARMUP
+    before the true IC) and co-evolve flow + particles to t=0, so positions
+    and velocities sample near the stationary particle distribution. Only the
+    particle state is kept; the true IC is always the stored snapshot."""
 
-    def make_particle_IC(self, npart, seed, stepper, omega0_hat, warmup_ctx=None):
-        return _fluid_particle_IC(npart, seed, stepper, omega0_hat)
-
-    def __repr__(self):
-        return ""
-
-
-class Gaussian_Vel_Init:
-    """Velocity drawn i.i.d. from N(0, std^2); positions as in Fluid_Vel_Init."""
-
-    def __init__(self, std=1.0):
-        self.std = std
-
-    def make_particle_IC(self, npart, seed, stepper, omega0_hat, warmup_ctx=None):
-        xp, yp, _, _ = _fluid_particle_IC(npart, seed, stepper, omega0_hat)
-        # fold_in(..., 2): the observation-noise stream uses fold_in(..., 1)
-        key = jax.random.fold_in(jax.random.PRNGKey(seed), 2)
-        ku, kv = jax.random.split(key)
-        up = self.std * jax.random.normal(ku, (npart,))
-        vp = self.std * jax.random.normal(kv, (npart,))
-        return xp, yp, up, vp
-
-    def __repr__(self):
-        return f"-vinit=gauss-std={self.std}"
-
-
-class Warmup_Vel_Init:
-    """Seed particles on the attractor snapshot T_w before omega0_hat and
-    co-evolve flow + particles for T_w; the final state is the particle IC."""
-
-    def __init__(self, T_w):
-        self.T_w = T_w
-
-    def snapshot_offset(self, t_skip):
-        k = self.T_w / t_skip
-        if self.T_w <= 0 or abs(k - round(k)) > 1e-9:
-            raise ValueError(
-                f"Warmup T_w={self.T_w} must be a positive multiple of t_skip={t_skip}."
-            )
-        return int(round(k))
-
-    def make_particle_IC(self, npart, seed, stepper, omega0_hat, warmup_ctx=None):
-        snapshots, idx, t_skip = warmup_ctx
-        k = self.snapshot_offset(t_skip)
-        if idx - k < 0:
-            raise ValueError(
-                f"Snapshot idx={idx} is too early for warmup T_w={self.T_w} "
-                f"(needs idx >= {k}); drop this seed or reduce T_w."
-            )
-        omega_start = jnp.asarray(snapshots[idx - k])
-
-        xp, yp, up, vp = _fluid_particle_IC(npart, seed, stepper, omega_start)
-        nsteps = int(round(self.T_w / stepper.dt))
+    def make_particle_IC(self, npart, key, stepper, omega_warm_start_hat):
+        xp, yp = _uniform_positions(npart, key, stepper.NS.L)
+        up, vp = _fluid_velocities(xp, yp, stepper, omega_warm_start_hat)
+        nsteps = int(round(T_WARMUP / stepper.dt))
 
         def body(carry, _):
             return stepper(*carry), None
 
         (_, xp, yp, up, vp), _ = jax.lax.scan(
-            body, (omega_start, xp, yp, up, vp), xs=None, length=nsteps
+            body, (omega_warm_start_hat, xp, yp, up, vp), xs=None, length=nsteps
         )
         return xp, yp, up, vp
 
     def __repr__(self):
-        return f"-vinit=warmup-Tw={self.T_w}"
+        return "-pinit=eq"
+
+
+class Gaussian_Init:
+    """Uniform-random positions + i.i.d. N(0, std^2) velocities placed
+    directly at t=0 (no particle warmup); requires inertial particles."""
+
+    def __init__(self, std=1.0):
+        self.std = std
+
+    def make_particle_IC(self, npart, key, stepper, omega_warm_start_hat):
+        pos_key, ku, kv = jax.random.split(key, 3)
+        xp, yp = _uniform_positions(npart, pos_key, stepper.NS.L)
+        up = self.std * jax.random.normal(ku, (npart,))
+        vp = self.std * jax.random.normal(kv, (npart,))
+        return xp, yp, up, vp
+
+    def __repr__(self):
+        return f"-pinit=gauss-std={self.std}"

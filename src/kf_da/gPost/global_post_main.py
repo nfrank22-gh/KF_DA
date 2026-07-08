@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
-from SRC.plotting_utils import save_svg
+from kf_da.utils.plotting_utils import save_svg
 import matplotlib as mpl
-from ..create_results_dir import..create_results_dir
-from SRC.DA_Comp.case_post_proc import radial_spectral_error
+from kf_da.utils.create_results_dir import create_results_dir
+from kf_da.daComp.case_post_proc import radial_spectral_error
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import scipy.stats as stats
 
@@ -238,7 +238,7 @@ def plot_performance(fp_df, save_root, metric="final_snap_rel_error"):
 def plot_feilds(
     fp_df,
     T, NP, NT,
-    crit, optimizer, fp,
+    crit, optimizer,
     save_root, base_root,
     max_k=15,
     nbins=8,
@@ -294,28 +294,24 @@ def plot_feilds(
     # -------------------------
     # Build list of cases to run
     # -------------------------
-    cases = []
-    for IC_trg_seed, IC_trg_seed_df in fp_df.groupby("true_IC_seed"):
-        for PIC_seed, PIC_seed_df in IC_trg_seed_df.groupby("PIC_seed"):
-            for init_IC_seed, _ in PIC_seed_df.groupby("init_IC_seed"):
-                cases.append((IC_trg_seed, PIC_seed, init_IC_seed))
+    cases = [case_seed for case_seed, _ in fp_df.groupby("case_seed")]
 
     # -------------------------
     # Per-case worker
     # -------------------------
     def run_case(case):
-        IC_trg_seed, PIC_seed, init_IC_seed = case
+        case_seed = case
 
         trg_path = os.path.join(
             base_root,
-            f"IC_seed={IC_trg_seed}/T={T}/omega_trg_trj.npy",
+            f"case={case_seed}/T={T}/omega_trg_trj.npy",
         )
         omega_trg_trj = np.load(trg_path)
 
         data_root = os.path.join(
             base_root,
-            f"IC_seed={IC_trg_seed}/T={T}/np={NP}/NT={NT}/PI/seed_{PIC_seed}"
-            f"/{crit}/{optimizer}/{fp}/Fourier_K=64/cases/{init_IC_seed}"
+            f"case={case_seed}/T={T}/np={NP}/NT={NT}"
+            f"/{crit}/{optimizer}/Fourier_K=64"
         )
         omega_DA_trj = np.load(os.path.join(data_root, "omega_DA_trj.npy"))
         omega_guess_trj = np.load(os.path.join(data_root, "omega_guess_trj.npy"))
@@ -486,14 +482,11 @@ def global_post_main(df: pd.DataFrame, base_root: str) -> None:
                     os.makedirs(loss_crit_root, exist_ok=True)
                     for optimizer, opt_df in crit_df.groupby("optimizer"):
                         opt_root = os.path.join(loss_crit_root, optimizer)
-                        for fp, fp_df in crit_df.groupby("floatp"):
-                            fp_root = os.path.join(opt_root, fp)
-                            for IC_param, IC_param_df in crit_df.groupby("IC_param"):
-                                IC_param_root = os.path.join(fp_root, f"{IC_param}")
-                                os.makedirs(IC_param_root, exist_ok=True)
-                                plot_opt_comp(optimizer, IC_param_df, IC_param_root)
-                                plot_performance(IC_param_df, IC_param_root)
-                                #plot_feilds(IC_param_df, T, n_part, NT, loss_crit, optimizer, fp, IC_param_root, base_root)
+                        for IC_param, IC_param_df in crit_df.groupby("IC_param"):
+                            IC_param_root = os.path.join(opt_root, f"{IC_param}")
+                            os.makedirs(IC_param_root, exist_ok=True)
+                            plot_opt_comp(optimizer, IC_param_df, IC_param_root)
+                            plot_performance(IC_param_df, IC_param_root)
 
 
 

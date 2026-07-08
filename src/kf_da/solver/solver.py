@@ -4,7 +4,6 @@ from functools import partial
 import numpy as np
 from kf_da.utils.utils import bilinear_sample_periodic
 from dataclasses import dataclass
-from kf_da.vp_floats.vp_py_utils import calc_output_shape
 from jax import ShapeDtypeStruct
 import time
 

@@ -42,7 +42,7 @@ The scientific task of this project — a deterministic, gradient-based inverse 
 _Avoid_: "data assimilation" alone when precision matters (too broad); EnKF, particle filter (these are different DA paradigms)
 
 **True IC** (`omega0_hat`):
-The ground-truth vorticity field at t=0 that generated the observed particle trajectory; the target of reconstruction.
+The ground-truth vorticity field at t=0 that generated the observed particle trajectory; the target of reconstruction. Always a stored **attractor snapshot** — the one lying **warmup time** downstream of the case's permuted snapshot pick (ADR-0002).
 _Avoid_: "true initial condition" (verbose), "target state"
 
 **IC guess** (`omega0_guess_hat`):
@@ -80,13 +80,16 @@ _Avoid_: "heavy particle"
 **Stokes number** (`St`):
 Dimensionless inertia parameter; St=0 gives **tracer particles**, St>0 gives **inertial particles**.
 
-**Particle IC seed** (`PIC_seed`):
-Random seed that determines the initial positions of particles within the periodic domain.
-_Avoid_: "particle seed"
+**Equilibrium seeding** (`particle_init: equilibrium`, the default):
+Particle initialization that scatters particles uniform-random on the attractor snapshot one **warmup time** before the **true IC**, then co-evolves flow + particles with the solver for that time; the final particle state is the particle IC, so particles sample near their stationary distribution at t=0. Applies to tracers and inertial particles alike. The **true IC** itself is always the stored snapshot, never the integrated flow state.
+_Avoid_: "warmup init", "warm start" (overloaded with optimization)
 
-**True IC seed** (`TIC_seed`):
-Random seed that selects which attractor snapshot becomes the **true IC** for a given experiment replicate.
-_Avoid_: "IC seed" (ambiguous — there is also the IC guess seed)
+**Gaussian seeding** (`particle_init: gaussian`, requires St > 0):
+Particle initialization placing uniform-random positions with i.i.d. N(0, std²) velocities directly at t=0 — no particle warmup, no solver run. Shares the same **true IC** as **equilibrium seeding**, so the two are comparable holding the flow fixed.
+_Avoid_: "cold start"
+
+**Warmup time** (`T_w`):
+The interval particles are co-evolved before t=0 under **equilibrium seeding** — a hidden constant of 100 time units, deliberately not exposed in config (ADR-0002).
 
 ### Optimization
 
@@ -95,10 +98,10 @@ The change of variables applied to `omega_hat` before optimization; controls whi
 Currently: **Fourier parametrization**.
 
 **Fourier parametrization** (`Fourier_Param`):
-IC parametrization that truncates the vorticity spectrum to wavenumbers |kx|, |ky| ≤ K (always K = NDOF//2) and applies spectral preconditioning P(k) = exp(−½ν β k²) to produce the **damped representation**; treated as a single indivisible operation.
+IC parametrization that truncates the vorticity spectrum to wavenumbers |kx|, |ky| ≤ K (always K = NDOF//2) and applies spectral preconditioning P(k) = exp(−½ν β k²) to produce the **damped representation**; treated as a single indivisible operation. β comes from the optional `precond_beta` config key and defaults to 0 — preconditioning off, P = identity (ADR-0004).
 
 **Damped representation** (`s` / `Z0` in code):
-The optimizer's search variable — the packed real vector obtained by applying the inverse preconditioner P⁻¹ to the retained Fourier modes of `omega_hat`. Recovering `omega_hat` from `s` applies P, re-amplifying the high-wavenumber modes.
+The optimizer's search variable — the packed real vector obtained by applying the inverse preconditioner P⁻¹ to the retained Fourier modes of `omega_hat`. Recovering `omega_hat` from `s` applies P, re-amplifying the high-wavenumber modes. With the default β = 0 the map is the identity and `s` is just the packed truncated spectrum.
 _Avoid_: "whitened variable", "s-space", "preconditioned IC"
 
 **Attractor initialization** (AI):
@@ -126,23 +129,17 @@ _Avoid_: "velocity loss"
 Reverse-mode differentiation through the coupled flow+particle trajectory to compute loss gradients and Hessian-vector products efficiently without storing the full forward trajectory.
 
 **Largest Lyapunov exponent** (LLE):
-The dominant exponential growth rate of infinitesimal perturbations to the Kolmogorov flow; used to set the **observation window** and to allocate mantissa bits in VP float experiments.
-
-### Precision Studies
-
-**VP float** (variable-precision float):
-Custom floating-point format (C++ Pybind11 extension) with configurable mantissa and exponent bits; used to quantify how many mantissa bits the stored forward trajectory needs before gradient errors degrade optimizer convergence. All trajectory states are stored with the same mantissa bit-width (uniform allocation).
-_Avoid_: "reduced precision", "low-precision float" (use "VP float" for this project's specific format)
+The dominant exponential growth rate of infinitesimal perturbations to the Kolmogorov flow; used to set the **observation window**.
 
 ### Experiment Structure
 
 **DA case**:
-One atomic unit of results — a single combination of true IC seed, particle IC seed, observation window, particle count, NT, IC guess, optimizer, loss function, and float precision. Corresponds to one row in `results.parquet` and one directory under `cases/`.
+One independent experiment replicate, identified by a single integer **case seed**. Each case has its own **true IC**, **IC guess**, and particle initialization; the parameter sweeps (T, n_particles, NT, optimizer, loss) cross against every case. One (case, sweep-combination) = one row in `results.parquet` and one leaf directory under `case=N/`.
 _Avoid_: "run", "trial", "experiment" (too vague)
 
-**Opt init sweep**:
-The set of **DA cases** that share the same (true IC, particle IC, T, n_part, NT, optimizer, loss, float precision) but vary the **IC guess** across `num_opt_inits` samples from the attractor.
-_Avoid_: "multi-start", "ensemble run"
+**Case seed**:
+The integer 0..n_cases−1 identifying a **DA case**. Substreams derived via `fold_in` drive the **IC guess**, particle positions, and observation noise; the **true IC** comes from a master permutation of attractor snapshot indices (sampled without replacement, so cases never share a true IC — ADR-0001).
+_Avoid_: `PIC_seed`, `TIC_seed`, "IC guess seed" (retired — there is exactly one seed per case)
 
 ### Outcomes
 
@@ -173,7 +170,7 @@ _Avoid_: "prior trajectory", "guess trajectory"
 
 ## Relationships
 
-- The **attractor** is the source for both the **true IC** (via **true IC seed**) and the **IC guess** (via **attractor initialization**)
+- The **attractor** is the source for both the **true IC** (via the **case seed**'s master permutation) and the **IC guess** (via **attractor initialization**)
 - One **true IC** generates one **target trajectory** of **tracer/inertial particles** over the **observation window**
 - The **loss function** measures mismatch between a candidate trajectory (from the **IC guess**) and the observed particle positions
 - The **adjoint solver** differentiates through the loss to provide gradients to the optimizer
@@ -188,10 +185,10 @@ _Avoid_: "prior trajectory", "guess trajectory"
 ## Example dialogue
 
 > **Dev:** "We're running a sweep over Re=100. Which **true IC** do we use?"
-> **Researcher:** "We pick 5 different **true IC seeds** — each selects a different attractor snapshot as the **true IC**. For each one, we sample several **IC guesses** from the attractor using **attractor initialization** with min_norm=0.1."
+> **Researcher:** "We set n_cases=5 — each **case seed** gets a distinct attractor snapshot as its **true IC** (sampled without replacement), plus its own **IC guess** from **attractor initialization** with min_norm=0.1 and its own particle positions."
 
 > **Dev:** "Why does the **observation window** T depend on Re?"
 > **Researcher:** "We set T to approximately one Lyapunov time — as Re increases, the **LLE** grows, so T shrinks. Too short and there's not enough information; too long and the problem becomes exponentially harder."
 
-> **Dev:** "What's the difference between `PIC_seed` and `TIC_seed`?"
-> **Researcher:** "The **true IC seed** picks which flow state we're trying to recover. The **particle IC seed** picks where the particles start — you can hold the flow fixed and try different particle configurations."
+> **Dev:** "Why do the particles start pre-mixed instead of uniform at t=0?"
+> **Researcher:** "That's **equilibrium seeding** — we scatter them uniformly one **warmup time** earlier and co-evolve them with the flow, so by t=0 they sample the stationary distribution. If you want un-warmed particles for an inertial run, use **Gaussian seeding** — the **true IC** is the same either way."

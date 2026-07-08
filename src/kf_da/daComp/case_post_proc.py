@@ -57,6 +57,15 @@ def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, 
     vel_error = compute_norm_vs_time(omega_trg, omega_DA)
     plot_vel_error_vs_time(vel_error, time_axis, t_mask, save_dir)
 
+    #saving npy files needed to replot from disk later (see diag_scripts/replot_case.py)
+    np.save(os.path.join(save_dir, "xp_trg.npy"), np.array(xp_trg))
+    np.save(os.path.join(save_dir, "yp_trg.npy"), np.array(yp_trg))
+    np.save(os.path.join(save_dir, "xp_DA.npy"), np.array(xp_DA))
+    np.save(os.path.join(save_dir, "yp_DA.npy"), np.array(yp_DA))
+    np.save(os.path.join(save_dir, "t_mask.npy"), np.array(t_mask))
+    np.save(os.path.join(save_dir, "vel_error.npy"), np.array(vel_error))
+    np.save(os.path.join(save_dir, "time_axis.npy"), np.array(time_axis))
+
     #particle tracks
     plot_particle_tracks(xp_trg, yp_trg, xp_DA, yp_DA, t_mask, os.path.join(save_dir, "particle_tracks.svg"))
 
@@ -86,6 +95,19 @@ def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, 
     )
     
     plot_convergence(opt_data, save_dir)
+
+    #target/DA/error row, final snapshot only, pre- and post-optimization
+    plot_field_error_row(
+        omega_init_guess[-1], omega_trg[-1],
+        os.path.join(save_dir, "guess_vs_target_tN_error_row.svg"),
+        l1="Guess vorticity (tN, pre-opt)", l2="Target vorticity (tN)"
+    )
+
+    plot_field_error_row(
+        omega_DA[-1], omega_trg[-1],
+        os.path.join(save_dir, "DA_vs_target_tN_error_row.svg"),
+        l1="DA vorticity (tN, post-opt)", l2="Target vorticity (tN)"
+    )
 
 def _break_periodic_lines(x, y, Lx, Ly, jump_frac=0.5):
     """
@@ -357,6 +379,43 @@ def plot_vort_comp(
 
     ax_spec.grid(True, which="both", alpha=0.3)
     ax_spec.legend(loc="best")
+
+    save_svg(mpl, fig, save_path)
+    plt.close(fig)
+
+def plot_field_error_row(
+    omega_pred, omega_target,
+    save_path,
+    l1, l2,
+    err_label="Absolute error",
+    L=2 * jnp.pi,
+):
+    """
+    Plot the predicted field, the target field, and their absolute error
+    (viridis heatmap) side by side in a single row.
+    """
+    omega_err = jnp.abs(omega_pred - omega_target)
+
+    fig, (ax_pred, ax_target, ax_err) = plt.subplots(1, 3, figsize=(15, 4), constrained_layout=True)
+
+    plot_vorticity(omega_pred, ax=ax_pred)
+    plot_vorticity(omega_target, ax=ax_target)
+    ax_pred.set_title(l1)
+    ax_target.set_title(l2)
+
+    im = ax_err.imshow(
+        np.asarray(omega_err),
+        origin="lower",
+        extent=[0, L, 0, L],
+        cmap="viridis",
+        aspect="equal",
+        vmin=0,
+        vmax=10,
+    )
+    fig.colorbar(im, ax=ax_err, shrink=0.8)
+    ax_err.set_title(err_label)
+    ax_err.set_xlabel("x")
+    ax_err.set_ylabel("y")
 
     save_svg(mpl, fig, save_path)
     plt.close(fig)

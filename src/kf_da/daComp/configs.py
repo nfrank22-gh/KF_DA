@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from kf_da.velInit.IC_init import IC_init
-from kf_da.solver.IC_gen import Fluid_Vel_Init
-from kf_da.vp_floats.vp_py_utils import choose_exponent_format, float_pos_range
+from kf_da.solver.IC_gen import Equilibrium_Init
 
 @dataclass
 class KF_Opts:
@@ -17,7 +16,7 @@ class KF_Opts:
 class Particle_Opts:
     St: float
     beta: float
-    vel_init: any = field(default_factory=Fluid_Vel_Init)
+    particle_init: any = field(default_factory=Equilibrium_Init)
 
 @dataclass
 class DA_Opts:
@@ -27,30 +26,11 @@ class DA_Opts:
     n_particles_list: any
     NT_list: any
     part_opts: Particle_Opts
-    PIC_seed_list: any
-    num_opt_inits: int
-    TIC_seed_list: any
+    n_cases: int
     ic_init: IC_init
     optimizer_list: any
-    vp_list: any
     crit_list: any
     IC_param_list: any
     T_list: any
     sigma_vy: float = 0.0
     vx__vy_sigma: float = 1.0
-
-
-class VP_Float_Settings:
-    def __init__(self, mbits, minv, maxv):
-        exp_bits, exp_bias = choose_exponent_format(minv, maxv)
-        self.minp, self.maxp = float_pos_range(exp_bits, exp_bias, mbits)
-
-        self.mbits = mbits
-        self.exp_bits = exp_bits
-        self.exp_bias = exp_bias
-
-    def get_vp_settings(self):
-        return self.mbits, self.exp_bits, self.exp_bias
-    
-    def __repr__(self):
-        return f"M={self.mbits}_E={self.exp_bits}_bias={self.exp_bias}"

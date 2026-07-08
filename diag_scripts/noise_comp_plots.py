@@ -43,7 +43,6 @@ def stokes_comp():
         if os.path.isdir(root):
             df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
             df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit) & (df["optimizer"] == optimizer)]
-
             for n_part in n_part_list:
                 df_npart = df[df["n_part"] == n_part]
                 metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
@@ -64,7 +63,28 @@ def stokes_comp():
     ax.set_title(f"Reconstruction error vs Stokes number (NT={NT}, Re={Re})")
     ax.legend()
     plt.tight_layout()
+    print(os.path.join(create_results_dir(), "St_comp.svg"))
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp.svg"))
+
+    means_by_npart = {n_part: [] for n_part in n_part_list}
+    for St in stokes_num_list:
+        for n_part, val in means[St]:
+            means_by_npart[n_part].append((St, val))
+
+    fig, ax = plt.subplots()
+    for n_part in n_part_list:
+        pts = means_by_npart[n_part]
+        if not pts:
+            continue
+        sts, vals = zip(*pts)
+        ax.plot(sts, vals, marker="o", label=f"n_part={n_part}")
+
+    ax.set_xlabel("Stokes number")
+    ax.set_ylabel(f"Mean {metric}")
+    ax.set_title(f"Reconstruction error vs Stokes number (NT={NT}, Re={Re})")
+    ax.legend()
+    plt.tight_layout()
+    save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp_vs_St.svg"))
 
 def noise_levels():
     Re = 100
@@ -196,4 +216,4 @@ def optimizer_comp(
 
 
 if __name__ == "__main__":
-    optimizer_comp()
+    stokes_comp()

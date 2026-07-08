@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 import functools
-from kf_da.daComp.adjoint import Adjoint_Solver, get_loss_grad_vp_fn, get_loss_grad_conditional_vp_fn
+from kf_da.daComp.adjoint import Adjoint_Solver
 from kf_da.daComp.loss_funcs import create_loss_fn
 from kf_da.utils.utils import build_div_free_proj
 from kf_da.solver.solver import Omega_Integrator, KF_Stepper
@@ -22,7 +22,6 @@ class Loss_and_Deriv_fns:
         meas_part_pos,
         dt,
         T,
-        vfloat,
         allow_dynamic_PP_opt=True,
         checkpoint=False,
         meas_part_vel=None,
