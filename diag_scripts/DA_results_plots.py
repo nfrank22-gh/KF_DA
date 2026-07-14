@@ -249,10 +249,12 @@ def embedding_fig(cfg: dict):
         root = os.path.join(
             create_results_dir(),
             noise_type,
-            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
-        )
+            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI-pinit=eq",
+        ) 
+        print(root)
         if os.path.isdir(root):
             df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
+            print(df)
             df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit)]
             for n_part, df_npart in df.groupby("n_part", sort=True):
                 metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
