@@ -104,17 +104,17 @@ def load_config():
     #Re = 200 | T = 3.2
     #Re = 100 | T = 3,3
     #Re = 60 | T = 4.1
-    #Re = 40 | T = 7.2
+    #Re = 40 | T = .43
 
     T_dict = {
          200: 3.2,
-         100: 3.3,
-         80: 3.16,
+         100: 3.2,
+         80: 3.2,
          60: 4.1,
-         40: 7.2
+         40: .43
     }
 
-    yaml_root = "../kf-da-configs/daExpConfig.yaml"
+    yaml_root = os.environ.get("KF_DA_CONFIG_PATH", "../kf-da-configs/daExpConfig.yaml")
     with open(yaml_root) as f:
         daExpConfig = yaml.safe_load(f)
     da_set = daExpConfig["daSet"]
