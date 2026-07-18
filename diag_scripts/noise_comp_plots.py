@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+from matplotlib.lines import Line2D
 from DA_results_plots import remove_outliers_by_loss
 from kf_da.utils.plotting_utils import save_svg
 
@@ -14,8 +15,8 @@ def create_results_dir():
 
 def stokes_comp():
     Re = 100
-    NT = 4
-    n_part_list = [20, 40, 80]
+    NT = 8
+    n_part_list = [20, 40, 60]
 
     NDOF = 128
     dt = 1e-2
@@ -26,63 +27,83 @@ def stokes_comp():
     loss_crit   = "PP_MSE"
     optimizer   = "L-BFGS_ArmBT-150"
 
-    stokes_num_list = [0, 0.01, .25, 0.5, 1, 2, 5]
+    stokes_num_list = [0.25, 0.5, 0.75, 1]
 
-    means = {St: [] for St in stokes_num_list}
+    gauss_std = 1.0
+    pinit_suffixes = {"eq": "-pinit=eq", "gauss": f"-pinit=gauss-std={gauss_std}"}
+    pinit_linestyles = {"eq": "dashed", "gauss": "solid"}
+
+    means = {(St, pinit): [] for St in stokes_num_list for pinit in pinit_suffixes}
 
     for St in stokes_num_list:
-        root = os.path.join(
-            create_results_dir(),
-            "DA-no_noise",
-        )
-        root = os.path.join(
-            root,
-            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
-        )
+        for pinit, suffix in pinit_suffixes.items():
+            root = os.path.join(
+                create_results_dir(),
+                "DA-no_noise",
+                f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI{suffix}",
+            )
 
-        if os.path.isdir(root):
-            df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
-            df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit) & (df["optimizer"] == optimizer)]
-            for n_part in n_part_list:
-                df_npart = df[df["n_part"] == n_part]
-                metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
-                if len(metric_arr) == 0:
-                    continue
-                means[St].append((n_part, np.mean(metric_arr)))
+            if os.path.isdir(root):
+                df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
+                df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit) & (df["optimizer"] == optimizer)]
+                for n_part in n_part_list:
+                    df_npart = df[df["n_part"] == n_part]
+                    if len(df_npart) == 0:
+                        continue
+                    metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
+                    if len(metric_arr) == 0:
+                        continue
+                    means[(St, pinit)].append((n_part, np.mean(metric_arr)))
+
+    pinit_handles = [
+        Line2D([0], [0], color="black", linestyle=pinit_linestyles["eq"], label="Equilibrium init"),
+        Line2D([0], [0], color="black", linestyle=pinit_linestyles["gauss"], label="Gaussian init"),
+    ]
 
     fig, ax = plt.subplots()
+    st_colors = dict(zip(stokes_num_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
     for St in stokes_num_list:
-        pts = means[St]
-        if not pts:
-            continue
-        nparts, vals = zip(*pts)
-        ax.plot(nparts, vals, marker="o", label=f"St={St}")
+        for pinit in pinit_suffixes:
+            pts = means[(St, pinit)]
+            if not pts:
+                continue
+            nparts, vals = zip(*pts)
+            ax.plot(nparts, vals, marker="o", color=st_colors[St], linestyle=pinit_linestyles[pinit])
 
     ax.set_xlabel("Number of particles")
     ax.set_ylabel(f"Mean {metric}")
     ax.set_title(f"Reconstruction error vs Stokes number (NT={NT}, Re={Re})")
-    ax.legend()
+    st_handles = [Line2D([0], [0], color=st_colors[St], label=f"St={St}") for St in stokes_num_list]
+    st_legend = ax.legend(handles=st_handles, loc="upper right", title="Stokes number")
+    ax.add_artist(st_legend)
+    ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
     plt.tight_layout()
     print(os.path.join(create_results_dir(), "St_comp.svg"))
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp.svg"))
 
-    means_by_npart = {n_part: [] for n_part in n_part_list}
+    means_by_npart = {(n_part, pinit): [] for n_part in n_part_list for pinit in pinit_suffixes}
     for St in stokes_num_list:
-        for n_part, val in means[St]:
-            means_by_npart[n_part].append((St, val))
+        for pinit in pinit_suffixes:
+            for n_part, val in means[(St, pinit)]:
+                means_by_npart[(n_part, pinit)].append((St, val))
 
     fig, ax = plt.subplots()
+    npart_colors = dict(zip(n_part_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
     for n_part in n_part_list:
-        pts = means_by_npart[n_part]
-        if not pts:
-            continue
-        sts, vals = zip(*pts)
-        ax.plot(sts, vals, marker="o", label=f"n_part={n_part}")
+        for pinit in pinit_suffixes:
+            pts = means_by_npart[(n_part, pinit)]
+            if not pts:
+                continue
+            sts, vals = zip(*pts)
+            ax.plot(sts, vals, marker="o", color=npart_colors[n_part], linestyle=pinit_linestyles[pinit])
 
     ax.set_xlabel("Stokes number")
     ax.set_ylabel(f"Mean {metric}")
     ax.set_title(f"Reconstruction error vs Stokes number (NT={NT}, Re={Re})")
-    ax.legend()
+    npart_handles = [Line2D([0], [0], color=npart_colors[n_part], label=f"n_part={n_part}") for n_part in n_part_list]
+    npart_legend = ax.legend(handles=npart_handles, loc="upper right", title="Number of particles")
+    ax.add_artist(npart_legend)
+    ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
     plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp_vs_St.svg"))
 
