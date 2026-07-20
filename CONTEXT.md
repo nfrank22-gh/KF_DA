@@ -67,6 +67,27 @@ _Avoid_: conflating with **noisy observations** (which are positions)
 **Measurement mask** (`t_mask`):
 Boolean array of length `int(T/dt)+1` marking which time steps carry an observation; controls which forward steps contribute to the loss.
 
+### Cycled DA (long rollout)
+
+**Cycled DA** (also: segmented DA, long rollout):
+Chaining single-window DA over `n_segments` consecutive **segments** to track the reference over a long horizon, rather than assimilating one window in isolation (ADR-0005). The `main_scripts` long-rollout script; tracer-only (St=0), no noise.
+_Avoid_: "sequential DA" (ambiguous), "multi-window" — say "cycled DA"
+
+**Segment**:
+One assimilation window in a **cycled DA** run; length `T_seg = T_dict[Re]` (the Lyapunov timescale, same as the main experiments). Total horizon = `T_seg * n_segments`.
+_Avoid_: "assimilation window" (reserved-against elsewhere); the physical span is still an **observation window**, but as a link in the chain it is a "segment".
+
+**Analysis** (`omega0_DA_k`):
+A segment's optimized IC at its window *start* — the DA estimate for that segment.
+_Avoid_: "reconstructed IC" (fine for a single case; in cycling use "analysis")
+
+**Background** (also: forecast handoff):
+The initial guess for segment `k+1`, formed by rolling segment `k`'s **analysis** forward through its window to `t_{k+1}`. The forecast state — not the raw analysis — is what transfers between segments (standard cycled 4D-Var, ADR-0005).
+_Avoid_: "initial guess" for segments past the first (reserve **IC guess** for the segment-1 attractor draw)
+
+**Full-horizon DA trajectory**:
+The concatenation of every segment's **analysis** rolled forward through its own window; the "DA system" shown in the error-vs-time curve and the side-by-side video. Discontinuities at segment boundaries are the re-assimilation corrections and are kept, not smoothed.
+
 ### Particles
 
 **Tracer particle**:
