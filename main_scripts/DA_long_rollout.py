@@ -92,8 +92,9 @@ def run_experiment(cfg, out_dir):
     os.makedirs(out_dir, exist_ok=True)
 
     # --- Attractor snapshots, true IC, warm start ---
+    total_T = int(float(cfg.get("total_T", 1e4)))
     kf_opts = KF_Opts(Re=Re, n=N_FORCING, NDOF=NDOF, dt=dt,
-                      total_T=int(1e4), min_samp_T=MIN_SAMP_T, t_skip=T_SKIP)
+                      total_T=total_T, min_samp_T=MIN_SAMP_T, t_skip=T_SKIP)
     attractor = load_data(kf_opts)
 
     ic_init = AI(min_norm=float(cfg["min_norm"]), max_norm=float(cfg["max_norm"]))
@@ -280,40 +281,73 @@ def plot_loss_convergence(out_dir):
     plt.close(fig)
 
 
-def make_video(out_dir, max_frames=600):
+def make_video(out_dir, max_frames=600, trail_len=15):
     meta = _load_meta(out_dir)
     L = 2 * np.pi
     omega_ref = np.load(os.path.join(out_dir, "omega_ref_trj.npy"))
     omega_DA = np.load(os.path.join(out_dir, "omega_DA_trj.npy"))
+    xp_ref = np.load(os.path.join(out_dir, "xp_ref_trj.npy"))
+    yp_ref = np.load(os.path.join(out_dir, "yp_ref_trj.npy"))
 
     # spectral -> physical vorticity
     w_ref = np.fft.irfft2(omega_ref, axes=(-2, -1))
     w_DA = np.fft.irfft2(omega_DA, axes=(-2, -1))
+    w_err = w_DA - w_ref
 
     n_frames = w_ref.shape[0]
     skip = max(1, n_frames // max_frames)
-    frames = range(0, n_frames, skip)
+    frames = list(range(0, n_frames, skip))
+
+    npart = xp_ref.shape[1]
 
     norm = colors.TwoSlopeNorm(vmin=-10, vcenter=0.0, vmax=10)
-    fig, (axr, axd) = plt.subplots(1, 2, figsize=(10, 5))
+    err_norm = colors.TwoSlopeNorm(vmin=-2, vcenter=0.0, vmax=2)
+    fig, (axr, axd, axe, axp) = plt.subplots(1, 4, figsize=(19, 5))
     im_r = axr.imshow(w_ref[0], origin="lower", extent=[0, L, 0, L],
                       cmap="RdBu_r", norm=norm, aspect="equal")
     im_d = axd.imshow(w_DA[0], origin="lower", extent=[0, L, 0, L],
                       cmap="RdBu_r", norm=norm, aspect="equal")
+    im_e = axe.imshow(w_err[0], origin="lower", extent=[0, L, 0, L],
+                      cmap="RdBu_r", norm=err_norm, aspect="equal")
     axr.set_title("reference")
     axd.set_title("DA")
-    for a in (axr, axd):
+    axe.set_title("error (DA - reference)")
+    axp.set_title("true particle positions")
+    for a in (axr, axd, axe):
         a.set_xticks([]); a.set_yticks([])
+    axp.set_xlim(0, L); axp.set_ylim(0, L)
+    axp.set_aspect("equal")
+    axp.set_xticks([]); axp.set_yticks([])
+    axp.set_facecolor("white")
     fig.colorbar(im_d, ax=(axr, axd), shrink=0.7)
+    fig.colorbar(im_e, ax=axe, shrink=0.7)
     sup = fig.suptitle("t = 0.00")
+
+    # comet-trail scatter for particles: newest points opaque, older points fade out.
+    # Fixed-size point cloud (trail_len blocks of npart), only offsets/alpha move per frame.
+    scat = axp.scatter(np.zeros(trail_len * npart), np.zeros(trail_len * npart),
+                        s=10, linewidths=0)
+    age_alpha = np.linspace(1.0, 0.05, trail_len)
+    base_rgba = np.array(colors.to_rgba("black"))
+    face_colors = np.tile(base_rgba, (trail_len * npart, 1))
+    for i in range(trail_len):
+        face_colors[i * npart:(i + 1) * npart, 3] = age_alpha[i]
+    scat.set_facecolor(face_colors)
 
     dt = meta["dt"]
 
     def update(fi):
         im_r.set_data(w_ref[fi])
         im_d.set_data(w_DA[fi])
+        im_e.set_data(w_err[fi])
+
+        trail_idx = [max(fi - j * skip, 0) for j in range(trail_len)]
+        xs = xp_ref[trail_idx].ravel()
+        ys = yp_ref[trail_idx].ravel()
+        scat.set_offsets(np.column_stack([xs, ys]))
+
         sup.set_text(f"t = {fi * dt:.2f}")
-        return im_r, im_d, sup
+        return im_r, im_d, im_e, scat, sup
 
     anim = FuncAnimation(fig, update, frames=frames, blit=False)
     anim.save(os.path.join(out_dir, "vorticity_side_by_side.mp4"),
