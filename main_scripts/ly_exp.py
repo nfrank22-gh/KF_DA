@@ -1,4 +1,8 @@
 import os
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -121,9 +125,77 @@ def plot_lyapunov_spectrum(lyap_sorted, out_path):
     plt.close(fig)
 
 
+def detect_gpus():
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True, text=True, check=True,
+        )
+        return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+
+
+def run_one_re(re_val, gpu_id, log_dir, repo_root):
+    log_path = log_dir / f"Re={re_val}.log"
+    env = os.environ.copy()
+    env["LY_EXP_RE_OVERRIDE"] = str(re_val)
+    if gpu_id is not None:
+        env["CUDA_VISIBLE_DEVICES"] = gpu_id
+
+    print(f"[start] Re={re_val} on GPU {gpu_id!r} -> {log_path}")
+    with open(log_path, "w") as log_f:
+        result = subprocess.run(
+            ["uv", "run", "python", "main_scripts/ly_exp.py"],
+            cwd=repo_root, env=env, stdout=log_f, stderr=subprocess.STDOUT,
+        )
+    status = "ok" if result.returncode == 0 else f"FAILED (code {result.returncode})"
+    print(f"[done]  Re={re_val}: {status}")
+    return re_val, result.returncode
+
+
+def run_re_sweep(re_values):
+    gpu_ids = detect_gpus()
+    repo_root = Path(__file__).resolve().parent.parent
+    log_dir = Path("ly_batch_logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    if not gpu_ids:
+        print("No GPUs detected; running Re sweep sequentially on CPU.")
+        slots = [None]
+    else:
+        print(f"Using GPUs {gpu_ids}, one Re per GPU.")
+        slots = gpu_ids
+
+    max_workers = len(slots)
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [
+            pool.submit(run_one_re, re_val, slots[i % len(slots)], log_dir, repo_root)
+            for i, re_val in enumerate(re_values)
+        ]
+        for fut in futures:
+            results.append(fut.result())
+
+    failed = [re_val for re_val, rc in results if rc != 0]
+    print(f"\n{len(results) - len(failed)}/{len(results)} Re values succeeded.")
+    if failed:
+        print("Failed Re values:")
+        for re_val in failed:
+            print(f"  {re_val}")
+        sys.exit(1)
+
+
 def ly_exp_main():
     with open("../kf-da-configs/lyExpConfig.yaml") as f:
         config = yaml.safe_load(f)["config"]
+
+    re_override = os.environ.get("LY_EXP_RE_OVERRIDE")
+    if re_override is not None:
+        config["Re"] = int(re_override) if float(re_override).is_integer() else float(re_override)
+    elif isinstance(config["Re"], list):
+        run_re_sweep(config["Re"])
+        return
 
     kf_opts = KF_Opts(
         Re=config["Re"],

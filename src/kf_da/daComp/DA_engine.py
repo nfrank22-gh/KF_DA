@@ -355,6 +355,10 @@ def _run_DA_case(
     DA_trj = trj_gen_fn(omega0_DA_hat, *particle_IC)
     init_guess_trj = trj_gen_fn(omega0_guess_hat, *particle_IC)
 
+    # Observer track (ADR-0007): particle position (and velocity, for the
+    # inertial/Joint_Opt path) exactly as the loss reset it at each
+    # measurement, rather than the fully continuous DA_trj rollout above.
+    observer_traj = loss_fn_and_derivs.observer_traj_fn(Z0_opt, PP_opt=optimizer.PP_opt)
 
     results_df["loss_record"] = [opt_data.loss_record]
 
@@ -363,7 +367,7 @@ def _run_DA_case(
     np.save(os.path.join(save_dir, "omega_guess_trj.npy"), np.array(init_guess_trj[0]))
     opt_data.save_data(save_dir)
 
-    post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, dt, t_mask, results_df, attractor_rad)
+    post_proc_case_main(target_trj, DA_trj, init_guess_trj, observer_traj, opt_data, save_dir, dt, t_mask, results_df, attractor_rad)
     append_to_parquet(results_df, parquet_path)
 
     #cleanup

@@ -251,10 +251,8 @@ def embedding_fig(cfg: dict):
             noise_type,
             f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI-pinit=eq",
         ) 
-        print(root)
         if os.path.isdir(root):
             df = pd.read_parquet(os.path.join(root, "results.parquet")).dropna()
-            print(df)
             df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit)]
             for n_part, df_npart in df.groupby("n_part", sort=True):
                 metric_arr, _ = remove_outliers_by_loss(df_npart, metric)
@@ -264,7 +262,6 @@ def embedding_fig(cfg: dict):
                 dM_list.append(dM_dict[Re])
                 m_list.append(NT * n_part * 2)
                 metric_list.append(np.mean(metric_arr))
-
     dM_arr     = np.array(dM_list)
     m_arr      = np.array(m_list)
     metric_arr = np.array(metric_list)
@@ -305,6 +302,56 @@ def embedding_fig(cfg: dict):
 
     plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type, "embedding_fig.svg"))
+    plt.close(fig)
+
+    # --- reconstruction error vs measurement count, all Re on one axes ---
+    unique_Re_sorted = sorted(set(Re_list))
+    cmap  = plt.get_cmap("viridis", len(unique_Re_sorted))
+    norm  = mpl.colors.BoundaryNorm(np.arange(len(unique_Re_sorted) + 1) - 0.5,
+                                    cmap.N)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    for i, Re in enumerate(unique_Re_sorted):
+        sel = Re_arr == Re
+        m_Re      = m_arr[sel]
+        metric_Re = metric_arr[sel]
+
+        sort_idx  = np.argsort(m_Re)
+        m_Re      = m_Re[sort_idx]
+        metric_Re = metric_Re[sort_idx]
+
+        dM    = dM_dict[Re]
+        color = cmap(i)
+
+        # x-axis is relative to the immersion dimension: 0 <-> m = dM
+        ax.plot(m_Re - dM, metric_Re, marker="o", color=color)
+        # embedding threshold 2*dM + 1 sits at dM + 1 in relative coordinates
+        ax.axvline(dM + 1, color=color, ls="-", lw=1.5, alpha=0.8)
+
+    # single immersion line, shared by all Re in relative coordinates
+    ax.axvline(0.0, color="grey")
+
+    ax.set_xlabel("m - dM")
+    ax.set_ylabel(metric)
+    ax.set_title(f"loss_crit = {loss_crit}")
+
+    # line-style legend (colour is carried by the colorbar)
+    style_handles = [
+        mpl.lines.Line2D([], [], color="k", marker="o", label="reconstruction error"),
+        mpl.lines.Line2D([], [], color="k", ls="--", lw=1, label="immersion (m = dM)"),
+        mpl.lines.Line2D([], [], color="k", ls="-",  lw=1.5, label="embedding (m = 2·dM + 1)"),
+    ]
+    ax.legend(handles=style_handles)
+
+    cbar = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+                        ticks=np.arange(len(unique_Re_sorted)))
+    cbar.ax.set_yticklabels([f"{Re:g}" for Re in unique_Re_sorted])
+    cbar.set_label("Reynolds number (Re)")
+
+    plt.tight_layout()
+    save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type,
+                                    "embedding_fig_recon_v_m.svg"))
     plt.close(fig)
 
 # ---------------------------------------------------------------------------

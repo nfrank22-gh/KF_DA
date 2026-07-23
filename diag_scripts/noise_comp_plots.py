@@ -13,7 +13,7 @@ def create_results_dir():
         root = f.read().rstrip("\n")
     return root
 
-def stokes_comp():
+def stokes_comp(include_gauss: bool = False):
     Re = 100
     NT = 8
     n_part_list = [20, 40, 60]
@@ -26,12 +26,15 @@ def stokes_comp():
     metric      = "final_snap_rel_error"
     loss_crit   = "PP_MSE"
     optimizer   = "L-BFGS_ArmBT-150"
-
-    stokes_num_list = [0.25, 0.5, 0.75, 1]
+ 
+    stokes_num_list = [0, 0.25, 0.5, 0.75, 1, 5]
 
     gauss_std = 1.0
-    pinit_suffixes = {"eq": "-pinit=eq", "gauss": f"-pinit=gauss-std={gauss_std}"}
-    pinit_linestyles = {"eq": "dashed", "gauss": "solid"}
+    pinit_suffixes = {"eq": "-pinit=eq"}
+    pinit_linestyles = {"eq": "dashed" if include_gauss else "solid"}
+    if include_gauss:
+        pinit_suffixes["gauss"] = f"-pinit=gauss-std={gauss_std}"
+        pinit_linestyles["gauss"] = "solid"
 
     means = {(St, pinit): [] for St in stokes_num_list for pinit in pinit_suffixes}
 
@@ -58,7 +61,7 @@ def stokes_comp():
     pinit_handles = [
         Line2D([0], [0], color="black", linestyle=pinit_linestyles["eq"], label="Equilibrium init"),
         Line2D([0], [0], color="black", linestyle=pinit_linestyles["gauss"], label="Gaussian init"),
-    ]
+    ] if include_gauss else []
 
     fig, ax = plt.subplots()
     st_colors = dict(zip(stokes_num_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
@@ -76,7 +79,8 @@ def stokes_comp():
     st_handles = [Line2D([0], [0], color=st_colors[St], label=f"St={St}") for St in stokes_num_list]
     st_legend = ax.legend(handles=st_handles, loc="upper right", title="Stokes number")
     ax.add_artist(st_legend)
-    ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
+    if pinit_handles:
+        ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
     plt.tight_layout()
     print(os.path.join(create_results_dir(), "St_comp.svg"))
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp.svg"))
@@ -103,14 +107,15 @@ def stokes_comp():
     npart_handles = [Line2D([0], [0], color=npart_colors[n_part], label=f"n_part={n_part}") for n_part in n_part_list]
     npart_legend = ax.legend(handles=npart_handles, loc="upper right", title="Number of particles")
     ax.add_artist(npart_legend)
-    ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
+    if pinit_handles:
+        ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
     plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp_vs_St.svg"))
 
 def noise_levels():
     Re = 100
-    NT = 4
-    n_part_list = [20, 40, 80]
+    NT = 8
+    n_part_list = [20, 40, 60]
 
     NDOF = 128
     dt = 1e-2
@@ -122,7 +127,7 @@ def noise_levels():
     loss_crit   = "PP_MSE"
     optimizer   = "L-BFGS_ArmBT-150"
 
-    sigma_y_list = [0, .001, .01, .1]
+    sigma_y_list = [.001, 0.005, .01, 0.05, .1]
     x__y_sigma = 2
 
     means = {sigma_y: [] for sigma_y in sigma_y_list}
@@ -140,7 +145,7 @@ def noise_levels():
             )
         root = os.path.join(
             root,
-            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI",
+            f"DA_Re={Re}_n={n}_dt={dt}_NDOF={NDOF}_mdt={m_dt}-St={St}_beta={beta}_AI-pinit=eq",
         )
 
         if os.path.isdir(root):
@@ -170,6 +175,27 @@ def noise_levels():
     plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "noise_comp.svg"))
 
+    means_by_npart = {n_part: [] for n_part in n_part_list}
+    for sigma_y in sigma_y_list:
+        for n_part, val in means[sigma_y]:
+            means_by_npart[n_part].append((sigma_y, val))
+
+    fig, ax = plt.subplots()
+    npart_colors = dict(zip(n_part_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
+    for n_part in n_part_list:
+        pts = means_by_npart[n_part]
+        if not pts:
+            continue
+        sigmas, vals = zip(*pts)
+        ax.plot(sigmas, vals, marker="o", color=npart_colors[n_part], label=f"n_part={n_part}")
+
+    ax.set_xlabel(r"$\sigma_y$")
+    ax.set_ylabel(f"Mean {metric}")
+    ax.set_title(f"Reconstruction error vs noise (NT={NT}, Re={Re})")
+    ax.legend(title="Number of particles")
+    plt.tight_layout()
+    save_svg(mpl, fig, os.path.join(create_results_dir(), "noise_comp_vs_noise.svg"))
+
 
 def optimizer_comp(
     optimizer_a: str = "L-BFGS_ArmBT-150",
@@ -178,7 +204,7 @@ def optimizer_comp(
     
 ):
     Re = 100
-    NT = 4
+    NT = 8
     n_part_list = [20, 40, 80]
 
     NDOF = 128

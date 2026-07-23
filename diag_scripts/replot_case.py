@@ -12,6 +12,8 @@ case_post_proc.post_proc_case_main and DA_engine._run_DA_case):
     omega_DA_trj.npy
     omega_guess_trj.npy
     xp_trg.npy, yp_trg.npy, xp_DA.npy, yp_DA.npy
+    xp_DA_obs.npy, yp_DA_obs.npy, xp_DA_drift.npy, yp_DA_drift.npy,
+    xp_DA_reset.npy, yp_DA_reset.npy (ADR-0007, observer track)
     t_mask.npy
     vel_error.npy, time_axis.npy
     loss_record.npy, grad_norm_record.npy, alpha_gTp_record.npy, IC_error_record.npy
@@ -82,12 +84,20 @@ def replot_case(case_dir):
 
     xp_trg = _load(case_dir, "xp_trg.npy")
     yp_trg = _load(case_dir, "yp_trg.npy")
-    xp_DA = _load(case_dir, "xp_DA.npy")
-    yp_DA = _load(case_dir, "yp_DA.npy")
+    xp_DA_obs = _load(case_dir, "xp_DA_obs.npy")
+    yp_DA_obs = _load(case_dir, "yp_DA_obs.npy")
+    xp_DA_drift = _load(case_dir, "xp_DA_drift.npy")
+    yp_DA_drift = _load(case_dir, "yp_DA_drift.npy")
+    xp_DA_reset = _load(case_dir, "xp_DA_reset.npy")
+    yp_DA_reset = _load(case_dir, "yp_DA_reset.npy")
     t_mask = _load(case_dir, "t_mask.npy")
 
     plot_particle_tracks(
-        xp_trg, yp_trg, xp_DA, yp_DA, t_mask,
+        xp_trg, yp_trg,
+        xp_DA_obs, yp_DA_obs,
+        xp_DA_drift, yp_DA_drift,
+        xp_DA_reset, yp_DA_reset,
+        t_mask,
         os.path.join(case_dir, "particle_tracks.svg")
     )
 

@@ -13,6 +13,7 @@ def create_loss_fn(
     checkpoint=False,
     meas_part_vel=None,
     optimize_velocity=False,
+    return_traj=False,
 ):
     omega_traj, _, _, up_traj, vp_traj = target_trj
     xp_meas_traj, yp_meas_traj = meas_part_pos
@@ -42,6 +43,11 @@ def create_loss_fn(
             omega_trg, up_trg, vp_trg, i = data
 
             has_meas = crit.t_mask[i]
+
+            # Drift point: particle state as it enters this step, i.e. the
+            # free-running position/velocity just before any reset below
+            # (ADR-0007's "drift point").
+            xp_drift, yp_drift, up_drift, vp_drift = xp_DA, yp_DA, up_DA, vp_DA
 
             def have_measurement(carry):
                 omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx = carry
@@ -115,10 +121,11 @@ def create_loss_fn(
                     vp_reset,
                     True,
                     meas_idx + 1,
-                ), loss_t
+                ), (loss_t, xp_opt, yp_opt, up_reset, vp_reset)
 
             def no_measurement(carry):
                 omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx = carry
+                zero = jnp.array(0.0, dtype=omega_DA.real.dtype if jnp.iscomplexobj(omega_DA) else omega_DA.dtype)
                 return (
                     omega_DA,
                     xp_DA,
@@ -127,9 +134,9 @@ def create_loss_fn(
                     vp_DA,
                     init_part,
                     meas_idx,
-                ), jnp.array(0.0, dtype=omega_DA.real.dtype if jnp.iscomplexobj(omega_DA) else omega_DA.dtype)
+                ), (zero, xp_DA, yp_DA, up_DA, vp_DA)
 
-            (omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx), loss_t = lax.cond(
+            (omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx), (loss_t, xp_reset, yp_reset, up_reset, vp_reset) = lax.cond(
                 has_meas,
                 have_measurement,
                 no_measurement,
@@ -140,7 +147,21 @@ def create_loss_fn(
                 omega_DA, xp_DA, yp_DA, up_DA, vp_DA
             )
 
-            return (omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx), loss_t
+            if return_traj:
+                # xp_DA/yp_DA here are the observer track's per-step state
+                # (post-reset-then-integrated); xp_reset/yp_reset is the
+                # reset value applied this step (only meaningful where
+                # has_meas is True; equals the drift point otherwise).
+                aux = (
+                    loss_t,
+                    xp_DA, yp_DA, up_DA, vp_DA,
+                    xp_drift, yp_drift, up_drift, vp_drift,
+                    xp_reset, yp_reset,
+                )
+            else:
+                aux = loss_t
+
+            return (omega_DA, xp_DA, yp_DA, up_DA, vp_DA, init_part, meas_idx), aux
 
         # jax.checkpoint (remat) avoids storing all intermediate activations during the
         # forward scan — they are recomputed during backprop at the cost of extra FLOPs.
@@ -160,6 +181,22 @@ def create_loss_fn(
             False,
             0,
         )
+
+        if return_traj:
+            _, (
+                losses,
+                xp_obs, yp_obs, up_obs, vp_obs,
+                xp_drift_traj, yp_drift_traj, up_drift_traj, vp_drift_traj,
+                xp_reset_traj, yp_reset_traj,
+            ) = lax.scan(scan_body, X0, xs)
+            loss_val = jnp.sum(losses) * jnp.sqrt(sigma_x * sigma_y)
+            traj = {
+                "xp": xp_obs, "yp": yp_obs, "up": up_obs, "vp": vp_obs,
+                "xp_drift": xp_drift_traj, "yp_drift": yp_drift_traj,
+                "up_drift": up_drift_traj, "vp_drift": vp_drift_traj,
+                "xp_reset": xp_reset_traj, "yp_reset": yp_reset_traj,
+            }
+            return loss_val, traj
 
         _, losses = lax.scan(scan_body, X0, xs)
         return jnp.sum(losses) * jnp.sqrt(sigma_x * sigma_y)

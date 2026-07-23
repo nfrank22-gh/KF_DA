@@ -31,6 +31,20 @@ class Loss_and_Deriv_fns:
 
         self.allow_dynamic_PP_opt = allow_dynamic_PP_opt
 
+        # Kept to reconstruct the observer track post-hoc (ADR-0007):
+        # create_loss_fn(..., return_traj=True) with these same inputs
+        # reproduces the exact per-measurement resets the loss/gradient
+        # actually used, rather than duplicating that logic elsewhere.
+        self._loss_crit = loss_crit
+        self._stepper = stepper
+        self._target_trj = target_trj
+        self._pp_sigma = pp_sigma
+        self._meas_part_pos = meas_part_pos
+        self._inv_transform = inv_transform
+        self._meas_part_vel = meas_part_vel
+        self._optimize_velocity = optimize_velocity
+        self._observer_traj_fn = None
+
         gen_loss_fn = create_loss_fn(
             loss_crit, stepper, target_trj, pp_sigma, meas_part_pos, inv_transform,
             checkpoint=checkpoint, meas_part_vel=meas_part_vel,
@@ -142,6 +156,24 @@ class Loss_and_Deriv_fns:
             operand=None,
         )
         return loss, grad, active
+
+    def observer_traj_fn(self, Z0, PP_opt=None):
+        """Reconstruct the observer track (ADR-0007): the particle
+        position/velocity trajectory with resets applied at each
+        measurement, exactly as used inside the loss's scan. Not jitted —
+        called once per case in post-processing, not during optimization.
+        """
+        PP_opt = self._resolve_PP_opt(PP_opt)
+        if self._observer_traj_fn is None:
+            self._observer_traj_fn = create_loss_fn(
+                self._loss_crit, self._stepper, self._target_trj, self._pp_sigma,
+                self._meas_part_pos, self._inv_transform, checkpoint=False,
+                meas_part_vel=self._meas_part_vel,
+                optimize_velocity=self._optimize_velocity,
+                return_traj=True,
+            )
+        _, traj = self._observer_traj_fn(Z0, PP_opt)
+        return traj
 
     def __repr__(self):
         return (

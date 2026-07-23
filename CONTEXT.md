@@ -189,6 +189,20 @@ _Avoid_: "DA trajectory", "optimized trajectory"
 The forward simulation from the **IC guess** before any optimization; saved as a baseline for measuring how much the optimizer improved.
 _Avoid_: "prior trajectory", "guess trajectory"
 
+**Observer track** (`xp_DA_obs`/`yp_DA_obs` in code, plus velocity equivalents for inertial particles):
+The particle position (and, when optimizing velocity, particle velocity) trajectory as it is actually used inside the loss's `lax.scan` — free-running between measurements, but subject to a **measurement reset** at every masked step (ADR-0007). Distinct from the particle component of the **reconstructed trajectory**, which never resets. Only the particle state resets; the vorticity stays continuous, same as in the **reconstructed trajectory**.
+_Avoid_: "DA track" alone (ambiguous with the **reconstructed trajectory**'s continuous particle line); "segment" (reserved for **cycled DA**'s full-window chaining, a different timescale)
+
+**Measurement reset**:
+The event, at each masked step of the **measurement mask**, where the **observer track**'s particle state is overwritten with the **reset value** before continuing to integrate forward to the next measurement (ADR-0007).
+_Avoid_: conflating with **cycled DA**'s segment-boundary re-assimilation (whole **observation window**, not a single measurement)
+
+**Reset value**:
+What a **measurement reset** sets particle state to: the **noisy observations** (position, and velocity when available) in the plain tracer path, or `PP_opt` (position and velocity) in the **joint optimization** path.
+
+**Drift point**:
+The **observer track**'s particle state immediately before a **measurement reset** — the endpoint of free-running integration since the previous reset. The gap between a drift point and the following **reset value** is the per-measurement correction magnitude.
+
 ## Relationships
 
 - The **attractor** is the source for both the **true IC** (via the **case seed**'s master permutation) and the **IC guess** (via **attractor initialization**)

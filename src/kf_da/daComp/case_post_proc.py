@@ -14,7 +14,7 @@ def cos_sim(x, y):
 def rel_error(trg, pred, attractor_rad):
     return jnp.linalg.norm(pred - trg) / attractor_rad
 
-def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, dt, t_mask, results_df, attractor_rad):
+def post_proc_case_main(target_trj, DA_trj, init_guess_trj, observer_traj, opt_data, save_dir, dt, t_mask, results_df, attractor_rad):
     """
     Post-process a DA case:
       - compute per-timestep errors for velocity and particles
@@ -66,8 +66,23 @@ def post_proc_case_main(target_trj, DA_trj, init_guess_trj, opt_data, save_dir, 
     np.save(os.path.join(save_dir, "vel_error.npy"), np.array(vel_error))
     np.save(os.path.join(save_dir, "time_axis.npy"), np.array(time_axis))
 
+    # Observer track (ADR-0007) — separate from xp_DA/yp_DA above, which
+    # stay the fully continuous reconstructed trajectory.
+    np.save(os.path.join(save_dir, "xp_DA_obs.npy"), np.array(observer_traj["xp"]))
+    np.save(os.path.join(save_dir, "yp_DA_obs.npy"), np.array(observer_traj["yp"]))
+    np.save(os.path.join(save_dir, "xp_DA_drift.npy"), np.array(observer_traj["xp_drift"]))
+    np.save(os.path.join(save_dir, "yp_DA_drift.npy"), np.array(observer_traj["yp_drift"]))
+    np.save(os.path.join(save_dir, "xp_DA_reset.npy"), np.array(observer_traj["xp_reset"]))
+    np.save(os.path.join(save_dir, "yp_DA_reset.npy"), np.array(observer_traj["yp_reset"]))
+
     #particle tracks
-    plot_particle_tracks(xp_trg, yp_trg, xp_DA, yp_DA, t_mask, os.path.join(save_dir, "particle_tracks.svg"))
+    plot_particle_tracks(
+        xp_trg, yp_trg,
+        observer_traj["xp"], observer_traj["yp"],
+        observer_traj["xp_drift"], observer_traj["yp_drift"],
+        observer_traj["xp_reset"], observer_traj["yp_reset"],
+        t_mask, os.path.join(save_dir, "particle_tracks.svg")
+    )
 
     #Vorticity plot
     plot_vort_comp(
@@ -133,19 +148,31 @@ def _break_periodic_lines(x, y, Lx, Ly, jump_frac=0.5):
     return xb, yb
 
 def plot_particle_tracks(
-    xp_trg, yp_trg, xp_DA, yp_DA,
+    xp_trg, yp_trg,
+    xp_DA_obs, yp_DA_obs,
+    xp_DA_drift, yp_DA_drift,
+    xp_DA_reset, yp_DA_reset,
     t_mask, save_path,
     max_particles=5
 ):
+    """
+    Plot the target track against the observer track (ADR-0007): the DA
+    particle position is free-running between measurements but reset to
+    xp_DA_reset/yp_DA_reset at each measurement, exactly as the loss scan
+    does it. xp_DA_drift/yp_DA_drift is the pre-reset (free-running)
+    position reached right before that correction.
+    """
     Lx, Ly = 2*jnp.pi, 2*jnp.pi
     xp_trg = np.asarray(xp_trg); yp_trg = np.asarray(yp_trg)
-    xp_DA  = np.asarray(xp_DA);  yp_DA  = np.asarray(yp_DA)
+    xp_DA_obs = np.asarray(xp_DA_obs); yp_DA_obs = np.asarray(yp_DA_obs)
+    xp_DA_drift = np.asarray(xp_DA_drift); yp_DA_drift = np.asarray(yp_DA_drift)
+    xp_DA_reset = np.asarray(xp_DA_reset); yp_DA_reset = np.asarray(yp_DA_reset)
     t_mask = np.asarray(t_mask)
 
-    if xp_trg.shape != yp_trg.shape or xp_DA.shape != yp_DA.shape:
-        raise ValueError("x/y shapes must match within trg and within DA.")
-    if xp_trg.shape != xp_DA.shape:
-        raise ValueError(f"trg shape {xp_trg.shape} must match DA shape {xp_DA.shape}.")
+    if xp_trg.shape != yp_trg.shape or xp_DA_obs.shape != yp_DA_obs.shape:
+        raise ValueError("x/y shapes must match within trg and within the observer track.")
+    if xp_trg.shape != xp_DA_obs.shape:
+        raise ValueError(f"trg shape {xp_trg.shape} must match observer-track shape {xp_DA_obs.shape}.")
 
     T, n = xp_trg.shape
 
@@ -170,24 +197,41 @@ def plot_particle_tracks(
     for p in range(m):
         c = colors[p % len(colors)]
 
+        # Measurement indices
+        if mask_mode == "global":
+            meas_idx = np.flatnonzero(t_mask == 1)
+        else:
+            meas_idx = np.flatnonzero(t_mask[:, p] == 1)
+
+        # Break the observer track at each measurement so free-running
+        # segments are drawn independently; the correction itself is drawn
+        # separately below as a dotted connector (drift point -> reset value).
+        xp_obs_p = xp_DA_obs[:, p].astype(float).copy()
+        yp_obs_p = yp_DA_obs[:, p].astype(float).copy()
+        xp_obs_p[meas_idx] = np.nan
+        yp_obs_p[meas_idx] = np.nan
+
         # break lines for periodic wrap (NaNs inserted)
         x1, y1 = _break_periodic_lines(xp_trg[:, p], yp_trg[:, p], Lx, Ly)
-        x2, y2 = _break_periodic_lines(xp_DA[:, p],  yp_DA[:, p],  Lx, Ly)
+        x2, y2 = _break_periodic_lines(xp_obs_p, yp_obs_p, Lx, Ly)
 
         # ---- 1) LINES first ----
         ax.plot(x1, y1, lw=1.5, color=c, label="Target" if p == 0 else None, zorder=1)
-        ax.plot(x2, y2, lw=1.5, ls="--", color=c, label="DA" if p == 0 else None, zorder=1)
+        ax.plot(x2, y2, lw=1.5, ls="--", color=c, label="Observer" if p == 0 else None, zorder=1)
 
-        # Measurement indices
-        if mask_mode == "global":
-            idx = np.flatnonzero(t_mask == 1)
-        else:
-            idx = np.flatnonzero(t_mask[:, p] == 1)
+        if meas_idx.size > 0:
+            # ---- 2) dotted correction connectors: drift point -> reset value ----
+            for k in meas_idx:
+                ax.plot(
+                    [xp_DA_drift[k, p] % Lx, xp_DA_reset[k, p] % Lx],
+                    [yp_DA_drift[k, p] % Ly, yp_DA_reset[k, p] % Ly],
+                    lw=1.0, ls=":", color=c, alpha=0.7, zorder=2,
+                )
 
-        if idx.size > 0:
-            # ---- 2) OPEN markers (DA) ----
+            # ---- 3) OPEN markers (drift point, i.e. observer position right
+            # before its measurement-time correction) ----
             ax.scatter(
-                xp_DA[idx, p] % Lx, yp_DA[idx, p] % Ly,
+                xp_DA_drift[meas_idx, p] % Lx, yp_DA_drift[meas_idx, p] % Ly,
                 s=1.5 * ms,          # bigger
                 marker="o",
                 facecolors="white",
@@ -196,9 +240,9 @@ def plot_particle_tracks(
                 zorder=3
             )
 
-            # ---- 3) FILLED markers (Target) ----
+            # ---- 4) FILLED markers (Target) ----
             ax.scatter(
-                xp_trg[idx, p] % Lx, yp_trg[idx, p] % Ly,
+                xp_trg[meas_idx, p] % Lx, yp_trg[meas_idx, p] % Ly,
                 s=ms,
                 marker="o",
                 color=c,
@@ -209,7 +253,7 @@ def plot_particle_tracks(
 
         # ---- START marker LAST (big black hollow circle) ----
         ax.scatter(
-            xp_DA[0, p] % Lx, yp_DA[0, p] % Ly,
+            xp_DA_obs[0, p] % Lx, yp_DA_obs[0, p] % Ly,
             s=140,
             marker="o",
             facecolors="none",
