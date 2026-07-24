@@ -5,8 +5,9 @@ windows, each of length ``T_dict[Re]`` (the Lyapunov timescale, same as the main
 experiments). Each segment's analysis is rolled forward through its window and
 the resulting forecast state seeds the next segment's IC guess (cycled 4D-Var).
 
-Tracer particles only (St = 0), no observation noise. Config is read from a YAML
-file; ``mode`` selects run / post / run_post.
+Particle Stokes number ``St`` is read from the YAML config (default 0.0, i.e.
+tracer particles); no observation noise. Config is read from a YAML file;
+``mode`` selects run / post / run_post.
 
     python main_scripts/DA_long_rollout.py
 """
@@ -45,7 +46,6 @@ T_DICT = {200: 3.2, 100: 3.2, 80: 3.6, 60: 4.2, 40: 0.43}
 # Hardcoded optimizer / parametrization (matches DA_exp_ctrl's style, ADR-0005).
 N_FORCING = 4          # forcing wavenumber n
 BFGS_ITS = 150
-ST = 0.0               # tracers only
 BETA = 0.0
 MIN_SAMP_T = 100       # attractor dataset sampling interval (for load_data)
 T_SKIP = 1
@@ -68,7 +68,8 @@ def load_config():
 def run_name(cfg):
     return (
         f"Re={cfg['Re']}_NDOF={cfg['NDOF']}_nseg={cfg['n_segments']}"
-        f"_np={cfg['n_particles']}_NT={cfg['NT']}_seed={cfg['seed']}"
+        f"_np={cfg['n_particles']}_NT={cfg['NT']}_St={cfg.get('St', 0.0)}"
+        f"_seed={cfg['seed']}"
     )
 
 
@@ -85,6 +86,7 @@ def run_experiment(cfg, out_dir):
     npart = int(cfg["n_particles"])
     NT = int(cfg["NT"])
     seed = int(cfg["seed"])
+    St = float(cfg.get("St", 0.0))
 
     T_seg = T_DICT[Re]
     nsteps_seg = int(T_seg / dt)
@@ -113,7 +115,7 @@ def run_experiment(cfg, out_dir):
     part_key = jax.random.fold_in(case_key, 1)
 
     # --- Steppers ---
-    stepper_tp = KF_TP_Stepper(Re, N_FORCING, NDOF, dt, ST, BETA, npart)
+    stepper_tp = KF_TP_Stepper(Re, N_FORCING, NDOF, dt, St, BETA, npart)
     stepper_tp_j = jax.jit(stepper_tp)
     kf_stepper = jax.jit(KF_Stepper(Re, N_FORCING, NDOF, dt))
     omega_int = Omega_Integrator(kf_stepper)
@@ -222,7 +224,7 @@ def run_experiment(cfg, out_dir):
         os.path.join(out_dir, "meta.npz"),
         dt=dt, T_seg=T_seg, n_segments=n_seg, nsteps_seg=nsteps_seg,
         attractor_rad=attractor_rad, NDOF=NDOF, Re=Re,
-        n_particles=npart, NT=NT, seed=seed,
+        n_particles=npart, NT=NT, seed=seed, St=St,
     )
     shutil.copyfile(cfg["_yaml_path"], os.path.join(out_dir, "config.yaml"))
     print(f"Saved run data to {out_dir}")
@@ -281,7 +283,29 @@ def plot_loss_convergence(out_dir):
     plt.close(fig)
 
 
-def make_video(out_dir, max_frames=600, trail_len=15):
+def _bare_fig(figsize=(5, 5)):
+    """Figure/axes with no margins, ticks, labels, or title — full-bleed frame."""
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    return fig, ax
+
+
+def save_colorbars(out_dir, vort_norm, err_norm):
+    """Standalone SVG colorbars (vorticity RdBu_r, |error| viridis) for slides."""
+    fig, (cax_v, cax_e) = plt.subplots(1, 2, figsize=(6, 1))
+    fig.colorbar(plt.cm.ScalarMappable(norm=vort_norm, cmap="RdBu_r"),
+                 cax=cax_v, orientation="horizontal", label="vorticity")
+    fig.colorbar(plt.cm.ScalarMappable(norm=err_norm, cmap="viridis"),
+                 cax=cax_e, orientation="horizontal", label="|error|")
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "colorbars.svg"))
+    plt.close(fig)
+
+
+def make_videos(out_dir, max_frames=600, trail_len=15, fps=30, dpi=130):
+    """Separate, bare (no axis/labels/colorbar/whitespace) videos for slides:
+    true vorticity, DA vorticity, error, and particle track movie."""
     meta = _load_meta(out_dir)
     L = 2 * np.pi
     omega_ref = np.load(os.path.join(out_dir, "omega_ref_trj.npy"))
@@ -292,41 +316,46 @@ def make_video(out_dir, max_frames=600, trail_len=15):
     # spectral -> physical vorticity
     w_ref = np.fft.irfft2(omega_ref, axes=(-2, -1))
     w_DA = np.fft.irfft2(omega_DA, axes=(-2, -1))
-    w_err = w_DA - w_ref
+    w_err = np.abs(w_DA - w_ref)
 
     n_frames = w_ref.shape[0]
     skip = max(1, n_frames // max_frames)
     frames = list(range(0, n_frames, skip))
-
     npart = xp_ref.shape[1]
 
     norm = colors.TwoSlopeNorm(vmin=-10, vcenter=0.0, vmax=10)
-    err_norm = colors.TwoSlopeNorm(vmin=-2, vcenter=0.0, vmax=2)
-    fig, (axr, axd, axe, axp) = plt.subplots(1, 4, figsize=(19, 5))
-    im_r = axr.imshow(w_ref[0], origin="lower", extent=[0, L, 0, L],
-                      cmap="RdBu_r", norm=norm, aspect="equal")
-    im_d = axd.imshow(w_DA[0], origin="lower", extent=[0, L, 0, L],
-                      cmap="RdBu_r", norm=norm, aspect="equal")
-    im_e = axe.imshow(w_err[0], origin="lower", extent=[0, L, 0, L],
-                      cmap="RdBu_r", norm=err_norm, aspect="equal")
-    axr.set_title("reference")
-    axd.set_title("DA")
-    axe.set_title("error (DA - reference)")
-    axp.set_title("true particle positions")
-    for a in (axr, axd, axe):
-        a.set_xticks([]); a.set_yticks([])
-    axp.set_xlim(0, L); axp.set_ylim(0, L)
-    axp.set_aspect("equal")
-    axp.set_xticks([]); axp.set_yticks([])
-    axp.set_facecolor("white")
-    fig.colorbar(im_d, ax=(axr, axd), shrink=0.7)
-    fig.colorbar(im_e, ax=axe, shrink=0.7)
-    sup = fig.suptitle("t = 0.00")
+    err_norm = colors.Normalize(vmin=0.0, vmax=2.0)
 
-    # comet-trail scatter for particles: newest points opaque, older points fade out.
-    # Fixed-size point cloud (trail_len blocks of npart), only offsets/alpha move per frame.
-    scat = axp.scatter(np.zeros(trail_len * npart), np.zeros(trail_len * npart),
-                        s=10, linewidths=0)
+    def save_field_video(field, field_norm, cmap, fname):
+        fig, ax = _bare_fig()
+        im = ax.imshow(field[0], origin="lower", extent=[0, L, 0, L],
+                        cmap=cmap, norm=field_norm, aspect="equal")
+        ax.set_xlim(0, L); ax.set_ylim(0, L)
+
+        def update(fi):
+            im.set_data(field[fi])
+            return (im,)
+
+        anim = FuncAnimation(fig, update, frames=frames, blit=True)
+        anim.save(os.path.join(out_dir, fname), writer="ffmpeg", fps=fps, dpi=dpi,
+                  savefig_kwargs={"pad_inches": 0})
+        plt.close(fig)
+
+    save_field_video(w_ref, norm, "RdBu_r", "vorticity_true.mp4")
+    save_field_video(w_DA, norm, "RdBu_r", "vorticity_DA.mp4")
+    save_field_video(w_err, err_norm, "viridis", "vorticity_error.mp4")
+    save_colorbars(out_dir, norm, err_norm)
+
+    # --- particle track movie ---
+    fig, ax = _bare_fig()
+    ax.set_xlim(0, L); ax.set_ylim(0, L)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    # comet-trail scatter: newest points opaque, older points fade out.
+    # Fixed-size point cloud (trail_len blocks of npart), only offsets move per frame.
+    scat = ax.scatter(np.zeros(trail_len * npart), np.zeros(trail_len * npart),
+                       s=10, linewidths=0)
     age_alpha = np.linspace(1.0, 0.05, trail_len)
     base_rgba = np.array(colors.to_rgba("black"))
     face_colors = np.tile(base_rgba, (trail_len * npart, 1))
@@ -334,32 +363,25 @@ def make_video(out_dir, max_frames=600, trail_len=15):
         face_colors[i * npart:(i + 1) * npart, 3] = age_alpha[i]
     scat.set_facecolor(face_colors)
 
-    dt = meta["dt"]
-
-    def update(fi):
-        im_r.set_data(w_ref[fi])
-        im_d.set_data(w_DA[fi])
-        im_e.set_data(w_err[fi])
-
+    def update_p(fi):
         trail_idx = [max(fi - j * skip, 0) for j in range(trail_len)]
         xs = xp_ref[trail_idx].ravel()
         ys = yp_ref[trail_idx].ravel()
         scat.set_offsets(np.column_stack([xs, ys]))
+        return (scat,)
 
-        sup.set_text(f"t = {fi * dt:.2f}")
-        return im_r, im_d, im_e, scat, sup
-
-    anim = FuncAnimation(fig, update, frames=frames, blit=False)
-    anim.save(os.path.join(out_dir, "vorticity_side_by_side.mp4"),
-              writer="ffmpeg", fps=30, dpi=130)
+    anim = FuncAnimation(fig, update_p, frames=frames, blit=True)
+    anim.save(os.path.join(out_dir, "particle_tracks.mp4"),
+              writer="ffmpeg", fps=fps, dpi=dpi,
+              savefig_kwargs={"pad_inches": 0})
     plt.close(fig)
 
 
 def post_process(out_dir):
     plot_error_vs_time(out_dir)
     plot_loss_convergence(out_dir)
-    make_video(out_dir)
-    print(f"Wrote figures/video to {out_dir}")
+    make_videos(out_dir)
+    print(f"Wrote figures/videos to {out_dir}")
 
 
 # --------------------------------------------------------------------------- #
