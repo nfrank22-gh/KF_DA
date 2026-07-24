@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from matplotlib.lines import Line2D
 from DA_results_plots import remove_outliers_by_loss
-from kf_da.utils.plotting_utils import save_svg
+from kf_da.utils.plotting_utils import fixed_axes, save_svg
 
 
 def create_results_dir():
@@ -63,7 +63,7 @@ def stokes_comp(include_gauss: bool = False):
         Line2D([0], [0], color="black", linestyle=pinit_linestyles["gauss"], label="Gaussian init"),
     ] if include_gauss else []
 
-    fig, ax = plt.subplots()
+    fig, ax = fixed_axes()
     st_colors = dict(zip(stokes_num_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
     for St in stokes_num_list:
         for pinit in pinit_suffixes:
@@ -81,7 +81,6 @@ def stokes_comp(include_gauss: bool = False):
     ax.add_artist(st_legend)
     if pinit_handles:
         ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
-    plt.tight_layout()
     print(os.path.join(create_results_dir(), "St_comp.svg"))
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp.svg"))
 
@@ -91,7 +90,7 @@ def stokes_comp(include_gauss: bool = False):
             for n_part, val in means[(St, pinit)]:
                 means_by_npart[(n_part, pinit)].append((St, val))
 
-    fig, ax = plt.subplots()
+    fig, ax = fixed_axes()
     npart_colors = dict(zip(n_part_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
     for n_part in n_part_list:
         for pinit in pinit_suffixes:
@@ -109,7 +108,6 @@ def stokes_comp(include_gauss: bool = False):
     ax.add_artist(npart_legend)
     if pinit_handles:
         ax.legend(handles=pinit_handles, loc="lower right", title="Particle init")
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "St_comp_vs_St.svg"))
 
 def noise_levels():
@@ -159,20 +157,19 @@ def noise_levels():
                     continue
                 means[sigma_y].append((n_part, np.mean(metric_arr)))
 
-    fig, ax = plt.subplots()
+    fig, ax = fixed_axes()
     for sigma_y in sigma_y_list:
         pts = means[sigma_y]
         if not pts:
             continue
         nparts, vals = zip(*pts)
         label = r"$\sigma_y=0$" if sigma_y == 0 else rf"$\sigma_y={sigma_y}$"
-        ax.plot(nparts, vals, marker="o", label=label)
+        ax.plot(np.array(nparts) * 2 * NT, vals, marker="o", label=label)
 
-    ax.set_xlabel("Number of particles")
+    ax.set_xlabel("Measurments")
     ax.set_ylabel(f"Mean {metric}")
     ax.set_title(f"Reconstruction error vs noise (NT={NT}, Re={Re})")
     ax.legend()
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "noise_comp.svg"))
 
     means_by_npart = {n_part: [] for n_part in n_part_list}
@@ -180,7 +177,7 @@ def noise_levels():
         for n_part, val in means[sigma_y]:
             means_by_npart[n_part].append((sigma_y, val))
 
-    fig, ax = plt.subplots()
+    fig, ax = fixed_axes()
     npart_colors = dict(zip(n_part_list, plt.rcParams["axes.prop_cycle"].by_key()["color"]))
     for n_part in n_part_list:
         pts = means_by_npart[n_part]
@@ -193,7 +190,6 @@ def noise_levels():
     ax.set_ylabel(f"Mean {metric}")
     ax.set_title(f"Reconstruction error vs noise (NT={NT}, Re={Re})")
     ax.legend(title="Number of particles")
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "noise_comp_vs_noise.svg"))
 
 
@@ -237,7 +233,7 @@ def optimizer_comp(
     df = df.dropna(subset=[metric])
     df = df[(df["NT"] == NT) & (df["loss_crit"] == loss_crit)]
 
-    fig, ax = plt.subplots()
+    fig, ax = fixed_axes()
     for optimizer in (optimizer_a, optimizer_b):
         df_opt = df[df["optimizer"] == optimizer]
         pts = []
@@ -258,9 +254,9 @@ def optimizer_comp(
     ax.set_title(f"Optimizer comparison ({sigma_label}, NT={NT}, Re={Re})")
     ax.set_ylim(0, 1)
     ax.legend()
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), "optimizer_comp.svg"))
 
 
 if __name__ == "__main__":
-    stokes_comp()
+    #stokes_comp()
+    noise_levels()

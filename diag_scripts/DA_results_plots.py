@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from kf_da.utils.plotting_utils import save_svg 
+from kf_da.utils.plotting_utils import fixed_axes, save_svg
 def create_results_dir():
     with open("../kf-da-configs/data_dir_plots.txt", "r") as f:
         root = f.read().rstrip("\n")
@@ -67,7 +67,7 @@ def m_dep_fig(cfg: dict):
 
     for m_target in m_targets:
         found = False
-        fig = plt.figure()
+        fig, ax = fixed_axes()
 
         for (n_part, NT), g in df.groupby(["n_part", "NT"], sort=True):
             m = NT * 2 * n_part
@@ -77,18 +77,17 @@ def m_dep_fig(cfg: dict):
 
             perf, final_loss = remove_outliers_by_loss(g, metric)
             label = f"NT={NT}, n_part={n_part}, mean={np.mean(perf):.3f}"
-            plt.scatter(final_loss, perf, label=label)
+            ax.scatter(final_loss, perf, label=label)
 
         if not found:
             print(f"No runs found with m_target={m_target}")
 
-        plt.legend()
-        plt.title(f"m = {m_target} | metric = {metric}")
-        plt.xlabel("loss")
-        plt.ylabel(metric)
-        plt.tight_layout()
-        plt.xscale("log")
-        plt.ylim(0, 1)
+        ax.legend()
+        ax.set_title(f"m = {m_target} | metric = {metric}")
+        ax.set_xlabel("loss")
+        ax.set_ylabel(metric)
+        ax.set_xscale("log")
+        ax.set_ylim(0, 1)
         save_svg(mpl, fig, os.path.join(save_root, f"m={m_target}.svg"))
         plt.close(fig)
 
@@ -143,7 +142,7 @@ def recon_v_m_dt(cfg: dict):
     mean_metric_vals   = np.array(mean_metric_vals)[sort_idx]
     mean_final_loss_vals = np.array(mean_final_loss_vals)[sort_idx]
 
-    fig, ax1 = plt.subplots(figsize=(7, 5))
+    fig, ax1 = fixed_axes()
     color1 = "tab:blue"
     l1 = ax1.plot(m_dt_vals, mean_metric_vals, marker="o", color=color1, label=metric)
     ax1.set_xlabel(r"$\Delta t_m$", fontsize=12)
@@ -157,8 +156,7 @@ def recon_v_m_dt(cfg: dict):
 
     lines = l1 + l2
     ax1.legend(lines, [l.get_label() for l in lines], loc="best", frameon=False)
-    plt.title(rf"Loss Criterion: {loss_crit}", fontsize=13)
-    plt.tight_layout()
+    ax1.set_title(rf"Loss Criterion: {loss_crit}", fontsize=13)
     save_svg(mpl, fig, os.path.join(base_dir, "recon_v_m_dt.svg"))
     plt.close(fig)
 
@@ -208,24 +206,23 @@ def recon_v_final_loss(cfg: dict):
             metric_arr = df[metric].to_numpy()
             outliers   = outlier_mask_by_loss(final_loss)
 
-            fig = plt.figure()
-            plt.scatter(final_loss[~outliers], metric_arr[~outliers],
-                        label=f"kept (n={np.sum(~outliers)}, mean={np.mean(metric_arr[~outliers]):.3f})")
+            fig, ax = fixed_axes()
+            ax.scatter(final_loss[~outliers], metric_arr[~outliers],
+                       label=f"kept (n={np.sum(~outliers)}, mean={np.mean(metric_arr[~outliers]):.3f})")
             if outliers.any():
-                plt.scatter(final_loss[outliers], metric_arr[outliers],
-                            color="tab:red", marker="x", s=60,
-                            label=f"outlier (n={np.sum(outliers)})")
+                ax.scatter(final_loss[outliers], metric_arr[outliers],
+                           color="tab:red", marker="x", s=60,
+                           label=f"outlier (n={np.sum(outliers)})")
 
-            plt.legend()
-            plt.title(f"NT={NT}, n_part={n_part} | loss_crit={loss_crit} | St={St}\n{noise_type}")
-            plt.xlabel("final loss")
-            plt.ylabel(metric)
-            plt.xscale("log")
+            ax.legend()
+            ax.set_title(f"NT={NT}, n_part={n_part} | loss_crit={loss_crit} | St={St}\n{noise_type}")
+            ax.set_xlabel("final loss")
+            ax.set_ylabel(metric)
+            ax.set_xscale("log")
             if ylim is not None:
-                plt.ylim(*ylim)
+                ax.set_ylim(*ylim)
             if xlim is not None:
-                plt.xlim(*xlim)
-            plt.tight_layout()
+                ax.set_xlim(*xlim)
 
             save_root = os.path.join(root, "global_results", "recon_v_final_loss")
             os.makedirs(save_root, exist_ok=True)
@@ -278,12 +275,12 @@ def embedding_fig(cfg: dict):
 
     dM_x = np.linspace(dM_arr.min(), dM_arr.max(), 100)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax, cax = fixed_axes(cbar=True)
 
     sc = ax.scatter(dM_arr, m_arr, c=metric_arr, s=80, vmin=0.0, vmax=0.5)
     ax.plot(dM_x, dM_x,           label="immersion line")
     ax.plot(dM_x, 2 * dM_x + 1,   label="embedding line")
-    fig.colorbar(sc, ax=ax).set_label("Mean Metric")
+    fig.colorbar(sc, cax=cax).set_label("Mean Metric")
     ax.set_xlabel("IM dimension")
     ax.set_ylabel("m = NT * n_part * 2")
     ax.legend()
@@ -300,7 +297,6 @@ def embedding_fig(cfg: dict):
     ax2.set_xlabel("Reynolds number (Re)")
     # --------------------------------
 
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type, "embedding_fig.svg"))
     plt.close(fig)
 
@@ -310,7 +306,7 @@ def embedding_fig(cfg: dict):
     norm  = mpl.colors.BoundaryNorm(np.arange(len(unique_Re_sorted) + 1) - 0.5,
                                     cmap.N)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax, cax = fixed_axes(cbar=True)
 
     for i, Re in enumerate(unique_Re_sorted):
         sel = Re_arr == Re
@@ -344,12 +340,11 @@ def embedding_fig(cfg: dict):
     ]
     ax.legend(handles=style_handles)
 
-    cbar = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+    cbar = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax,
                         ticks=np.arange(len(unique_Re_sorted)))
     cbar.ax.set_yticklabels([f"{Re:g}" for Re in unique_Re_sorted])
     cbar.set_label("Reynolds number (Re)")
 
-    plt.tight_layout()
     save_svg(mpl, fig, os.path.join(create_results_dir(), noise_type,
                                     "embedding_fig_recon_v_m.svg"))
     plt.close(fig)

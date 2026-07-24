@@ -1,5 +1,49 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+from mpl_toolkits.axes_grid1 import Divider, Size
+
+# Fixed size (inches) of the axes box itself -- ticks, labels, titles and
+# legends live outside of it and never change it.
+AXES_W_IN = 6.0
+AXES_H_IN = 4.5
+
+# Generous margins so that decorations never collide with the axes box; the
+# unused whitespace is trimmed by save_svg's bbox_inches="tight".
+_MARGINS = dict(left=1.1, right=1.1, bottom=0.9, top=0.9)
+
+
+def fixed_axes(w=AXES_W_IN, h=AXES_H_IN, cbar=False, cbar_width=0.18, cbar_pad=0.15):
+    """Figure with an axes box of exactly ``w`` x ``h`` inches.
+
+    The box size is pinned with a Divider, so tick marks, tick labels, axis
+    labels, titles and colorbars grow into the margins instead of shrinking
+    the axes. Do not call ``tight_layout`` on the returned figure.
+
+    Returns ``(fig, ax)``, or ``(fig, ax, cax)`` when ``cbar=True``.
+    """
+    m = _MARGINS
+    horiz_sizes = [m["left"], w]
+    if cbar:
+        horiz_sizes += [cbar_pad, cbar_width]
+    horiz_sizes += [m["right"]]
+    vert_sizes = [m["bottom"], h, m["top"]]
+
+    fig = plt.figure(figsize=(sum(horiz_sizes), sum(vert_sizes)))
+    divider = Divider(
+        fig,
+        (0.0, 0.0, 1.0, 1.0),
+        [Size.Fixed(s) for s in horiz_sizes],
+        [Size.Fixed(s) for s in vert_sizes],
+        aspect=False,
+    )
+    ax = fig.add_axes(divider.get_position(),
+                      axes_locator=divider.new_locator(nx=1, ny=1))
+    if cbar:
+        cax = fig.add_axes(divider.get_position(),
+                           axes_locator=divider.new_locator(nx=3, ny=1))
+        return fig, ax, cax
+    return fig, ax
+
 
 def save_svg(mpl, fig, path):
     mpl.rcParams['svg.fonttype'] = 'none'
