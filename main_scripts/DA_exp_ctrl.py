@@ -101,13 +101,8 @@ def load_config():
     BT_ls = ArmijoLineSearch(alpha_init=1.0, rho=0.25, c=1e-4, max_iters=5)
 
 
-    #Re = 200 | T = 3.2
-    #Re = 100 | T = 3,3
-    #Re = 60 | T = 4.1
-    #Re = 40 | T = .43
-
     T_dict = {
-         200: 3.2,
+         200: 3.0,
          100: 3.2,
          80: 3.6,
          60: 4.2,
